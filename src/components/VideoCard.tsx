@@ -12,7 +12,9 @@ interface CardProps {
   onPress: (v: VideoSummary) => void;
   onLongPress?: (v: VideoSummary) => void;
   progress?: number;
-  offline?: boolean;
+  offline?: boolean | 'audio';
+  /** Miniature enregistrée localement (évite de la retélécharger). */
+  localThumb?: string | null;
 }
 
 export function metaLine(v: VideoSummary): string {
@@ -20,7 +22,7 @@ export function metaLine(v: VideoSummary): string {
 }
 
 /** Grande carte : miniature pleine largeur, titre, chaîne, durée, date. */
-export const VideoCard = memo(function VideoCard({ video, onPress, onLongPress, progress, offline }: CardProps) {
+export const VideoCard = memo(function VideoCard({ video, onPress, onLongPress, progress, offline, localThumb }: CardProps) {
   const meta = metaLine(video);
   return (
     <PressableScale
@@ -33,6 +35,7 @@ export const VideoCard = memo(function VideoCard({ video, onPress, onLongPress, 
       <Thumbnail
         videoId={video.id}
         uri={video.thumbnail}
+        localUri={localThumb}
         durationSec={video.durationSec}
         isLive={video.isLive}
         progress={progress}
@@ -62,7 +65,6 @@ interface RowProps extends CardProps {
   subtitle?: string;
   right?: ReactNode;
   selected?: boolean;
-  localThumb?: string | null;
 }
 
 /** Ligne compacte : miniature à gauche (similaires, historique, bibliothèque). */

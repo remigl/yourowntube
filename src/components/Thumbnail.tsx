@@ -16,7 +16,8 @@ interface Props {
   isLive?: boolean;
   /** Progression de lecture 0–1 (barre en bas de la miniature). */
   progress?: number;
-  offline?: boolean;
+  /** Badge « Hors ligne » ; 'audio' pour un audio enregistré. */
+  offline?: boolean | 'audio';
   style?: StyleProp<ViewStyle>;
   rounded?: number;
   compact?: boolean;
@@ -51,8 +52,8 @@ export function Thumbnail({ videoId, uri, localUri, durationSec, isLive, progres
 
       {offline && (
         <View style={[styles.badge, styles.offline]}>
-          <Ionicons name="cloud-done" size={11} color="#fff" />
-          {!compact && <Text style={styles.badgeText}>Hors ligne</Text>}
+          <Ionicons name={offline === 'audio' ? 'musical-notes' : 'cloud-done'} size={11} color="#fff" />
+          {!compact && <Text style={styles.badgeText}>{offline === 'audio' ? 'Audio enregistré' : 'Hors ligne'}</Text>}
         </View>
       )}
 

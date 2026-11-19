@@ -23,8 +23,9 @@ import { Banner, CardSkeleton, MessageState, SectionHeader } from '../src/compon
 import { Chip } from '../src/components/Chip';
 import { VideoCard, VideoRow } from '../src/components/VideoCard';
 import { formatBytes, formatShortDate, progressRatio } from '../src/core/format';
+import { normalizeText } from '../src/core/sources/demo';
 import { DEFAULT_FILTERS, type SearchFilters } from '../src/core/types';
-import { addSearch, clearSearches, deleteSearch, downloadStats, listDownloads, listSearches, listWatchHistory } from '../src/db/repo';
+import { addSearch, clearSearches, type DownloadEntry, deleteSearch, downloadStats, listDownloads, listSearches, listWatchHistory } from '../src/db/repo';
 import { useLiveQuery } from '../src/hooks/useLiveQuery';
 import { useSearch } from '../src/hooks/useSearch';
 import { openVideo } from '../src/lib/navigation';
@@ -52,8 +53,20 @@ export default function Explorer() {
     history.data?.forEach((h) => m.set(h.video.id, h.completed ? 1 : progressRatio(h.positionSec, h.durationSec)));
     return m;
   }, [history.data]);
-  const offlineIds = useMemo(
-    () => new Set((saved.data ?? []).filter((d) => d.status === 'done').map((d) => d.video.id)),
+  /** Recherche dans les enregistrements : aucune donnée réseau, marche hors ligne. */
+  const localMatches = useMemo(() => {
+    const terms = normalizeText(query).split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return [];
+    return (saved.data ?? []).filter((d) => {
+      if (d.status !== 'done') return false;
+      const hay = normalizeText(`${d.video.title} ${d.video.channelName}`);
+      return terms.every((t) => hay.includes(t));
+    });
+  }, [query, saved.data]);
+
+  /** Vidéos enregistrées : badge dans les résultats et miniature locale. */
+  const savedById = useMemo(
+    () => new Map((saved.data ?? []).filter((d) => d.status === 'done').map((d) => [d.video.id, d] as const)),
     [saved.data],
   );
 
@@ -170,7 +183,8 @@ export default function Explorer() {
           search={search}
           sourceError={sourceError?.message}
           progressById={progressById}
-          offlineIds={offlineIds}
+          savedById={savedById}
+          localMatches={localMatches}
         />
       ) : (
         <Home
@@ -206,7 +220,8 @@ function Results({
   search,
   sourceError,
   progressById,
-  offlineIds,
+  savedById,
+  localMatches,
 }: {
   query: string;
   filters: SearchFilters;
@@ -214,11 +229,34 @@ function Results({
   search: ReturnType<typeof useSearch>;
   sourceError?: string;
   progressById: Map<string, number>;
-  offlineIds: Set<string>;
+  savedById: Map<string, DownloadEntry>;
+  localMatches: DownloadEntry[];
 }) {
-  const header = <FilterBar value={filters} onChange={onFilters} />;
+  const saved = localMatches.length > 0 && (
+    <View style={styles.localBlock}>
+      <Text style={styles.localTitle}>
+        <Ionicons name="phone-portrait-outline" size={13} color={colors.success} /> Dans vos enregistrements
+      </Text>
+      {localMatches.map((d) => (
+        <VideoRow
+          key={d.video.id}
+          video={d.video}
+          localThumb={d.thumbUri}
+          onPress={(v) => openVideo(v)}
+          offline={d.kind === 'audio' ? 'audio' : true}
+          tag={d.kind === 'audio' ? 'Audio enregistré · sans données' : 'Enregistrée · sans données'}
+        />
+      ))}
+    </View>
+  );
+  const header = (
+    <>
+      <FilterBar value={filters} onChange={onFilters} />
+      {saved}
+    </>
+  );
 
-  if (sourceError) {
+  if (sourceError && localMatches.length === 0) {
     return (
       <MessageState icon="server-outline" title="Source à configurer" message={sourceError} actionLabel="Ouvrir les réglages" onAction={() => router.push('/settings')} />
     );
@@ -233,6 +271,25 @@ function Results({
           <CardSkeleton />
         </View>
       </View>
+    );
+  }
+
+  if (search.error && search.items.length === 0 && search.error.code === 'offline' && localMatches.length > 0) {
+    // Hors ligne mais des enregistrements correspondent : on les montre, sans alarme.
+    return (
+      <ScrollView>
+        {header}
+        <Text style={[type.meta, styles.offlineNote]}>Hors ligne : seuls vos enregistrements sont affichés.</Text>
+      </ScrollView>
+    );
+  }
+
+  if ((search.error || sourceError) && search.items.length === 0 && localMatches.length > 0 && !search.loading) {
+    return (
+      <ScrollView>
+        {header}
+        <Text style={[type.meta, styles.offlineNote]}>{search.error?.message ?? sourceError}</Text>
+      </ScrollView>
     );
   }
 
@@ -268,7 +325,13 @@ function Results({
       contentContainerStyle={styles.listContent}
       renderItem={({ item }) => (
         <View style={styles.cardPad}>
-          <VideoCard video={item} onPress={(v) => openVideo(v)} progress={progressById.get(item.id)} offline={offlineIds.has(item.id)} />
+          <VideoCard
+            video={item}
+            onPress={(v) => openVideo(v)}
+            progress={progressById.get(item.id)}
+            offline={savedById.get(item.id)?.kind === 'audio' ? 'audio' : savedById.has(item.id)}
+            localThumb={savedById.get(item.id)?.thumbUri}
+          />
         </View>
       )}
       onEndReached={search.hasMore ? search.loadMore : undefined}
@@ -448,4 +511,7 @@ const styles = StyleSheet.create({
   footer: { alignItems: 'center', gap: space.sm, paddingVertical: space.lg },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, justifyContent: 'flex-start' },
   hCard: { width: 260 },
+  localBlock: { paddingHorizontal: space.lg, paddingBottom: space.md, marginBottom: space.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  localTitle: { color: colors.success, fontSize: 12.5, fontWeight: '700', marginBottom: space.xs, marginTop: space.xs },
+  offlineNote: { paddingHorizontal: space.lg, textAlign: 'center', marginTop: space.md },
 });

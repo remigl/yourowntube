@@ -43,6 +43,8 @@ interface SimilarState {
   items: SimilarVideo[];
   offlineItems: VideoSummary[];
   error: string | null;
+  /** Vidéo déjà enregistrée : rien n'est chargé d'internet sans le demander. */
+  deferred?: boolean;
 }
 
 export default function Watch() {
@@ -68,6 +70,13 @@ function WatchContent({ id }: { id: string }) {
   const lastPos = useRef(0);
   const refreshing = useRef(false);
   const forceStream = useRef(false);
+  /** null = inconnu ; true = fichier local présent (on n'utilise pas le réseau). */
+  const [localSaved, setLocalSaved] = useState<boolean | null>(null);
+  const [networkWanted, setNetworkWanted] = useState(false);
+
+  useEffect(() => {
+    void downloads.localFileFor(id).then((e) => setLocalSaved(!!e)).catch(() => setLocalSaved(false));
+  }, [id]);
 
   /* ── Métadonnées : cache mémoire → base locale ── */
   useEffect(() => {
@@ -169,13 +178,18 @@ function WatchContent({ id }: { id: string }) {
   /* ── Détails et vidéos similaires ── */
   useEffect(() => {
     let alive = true;
+    if (localSaved === null) return undefined; // on attend de savoir si la vidéo est enregistrée
     setSimilar({ loading: true, items: [], offlineItems: [], error: null });
-    if (!source || !online) {
-      // Hors ligne : on propose les autres vidéos enregistrées.
+    const deferred = localSaved && !networkWanted;
+    if (!source || !online || deferred) {
+      // Hors ligne, ou vidéo déjà enregistrée : aucune donnée chargée,
+      // on propose les autres vidéos enregistrées.
       void listDownloads().then((all) => {
         if (!alive) return;
-        const offlineItems = all.filter((d) => d.status === 'done' && d.video.id !== id).map((d) => ({ ...d.video, thumbnail: d.thumbUri ?? d.video.thumbnail }));
-        setSimilar({ loading: false, items: [], offlineItems, error: null });
+        const offlineItems = all
+          .filter((d) => d.status === 'done' && d.video.id !== id)
+          .map((d) => ({ ...d.video, thumbnail: d.thumbUri ?? d.video.thumbnail }));
+        setSimilar({ loading: false, items: [], offlineItems, error: null, deferred });
       });
       return () => {
         alive = false;
@@ -208,7 +222,7 @@ function WatchContent({ id }: { id: string }) {
     return () => {
       alive = false;
     };
-  }, [id, source, online, shortsPolicy]);
+  }, [id, source, online, shortsPolicy, localSaved, networkWanted]);
 
 
   /** Flux en échec : on passe au suivant en gardant la position. */
@@ -332,6 +346,7 @@ function WatchContent({ id }: { id: string }) {
                     style={({ pressed }) => [styles.origin, pressed && { opacity: 0.8 }]}
                     onPress={() => {
                       forceStream.current = true;
+                      setNetworkWanted(true);
                       setAttempt((n) => n + 1);
                     }}
                     accessibilityLabel="Regarder la vidéo en streaming"
@@ -357,7 +372,7 @@ function WatchContent({ id }: { id: string }) {
             </View>
           )}
 
-          <SimilarSection state={similar} online={online} />
+          <SimilarSection state={similar} online={online} onLoadSimilar={() => setNetworkWanted(true)} />
         </ScrollView>
       )}
     </View>
@@ -393,7 +408,7 @@ function PlayerPlaceholder({ state, video, onRetry, onBack }: { state: PlayState
   );
 }
 
-function SimilarSection({ state, online }: { state: SimilarState; online: boolean }) {
+function SimilarSection({ state, online, onLoadSimilar }: { state: SimilarState; online: boolean; onLoadSimilar: () => void }) {
   if (state.loading) {
     return (
       <View style={styles.similar}>
@@ -401,6 +416,22 @@ function SimilarSection({ state, online }: { state: SimilarState; online: boolea
         <RowSkeleton />
         <RowSkeleton />
         <RowSkeleton />
+      </View>
+    );
+  }
+
+  if (state.deferred) {
+    return (
+      <View style={styles.similar}>
+        <Text style={[type.h2, styles.similarTitle]}>Vos autres enregistrements</Text>
+        {state.offlineItems.map((v) => (
+          <VideoRow key={v.id} video={v} onPress={(x) => openVideo(x, true)} offline />
+        ))}
+        {online && (
+          <View style={{ marginTop: space.md, alignItems: 'flex-start' }}>
+            <Button label="Charger les vidéos similaires" icon="sparkles-outline" variant="ghost" onPress={onLoadSimilar} />
+          </View>
+        )}
       </View>
     );
   }
