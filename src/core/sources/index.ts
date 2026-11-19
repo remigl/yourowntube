@@ -32,7 +32,7 @@ export function createSource(s: AppSettings, http: HttpOptions = {}): VideoSourc
       } catch {
         streams = null; // recherche possible, lecture impossible : message clair au moment de lire
       }
-      return new YouTubeDataSource(s.youtubeApiKey, streams, http);
+      return new YouTubeDataSource(s.youtubeApiKey.trim(), streams, http);
     }
     default:
       throw new AppError('not_configured', 'Source inconnue.');

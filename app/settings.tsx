@@ -8,7 +8,6 @@ import { Chip } from '../src/components/Chip';
 import { ScreenHeader } from '../src/components/ScreenHeader';
 import { Button } from '../src/components/States';
 import { describeError } from '../src/core/errors';
-import { normalizeInstance } from '../src/core/sources/http';
 import { INSTANCE_HINTS, SOURCE_LABELS, type AppSettings } from '../src/core/settings';
 import type { SourceKind } from '../src/core/types';
 import { clearSearches, clearWatchHistory, pruneOrphanVideos } from '../src/db/repo';
@@ -72,7 +71,7 @@ export default function SettingsScreen() {
                   value={settings.youtubeApiKey}
                   placeholder="AIza…"
                   secure
-                  onCommit={(v) => set('youtubeApiKey', v.trim())}
+                  onChange={(v) => set('youtubeApiKey', v)}
                   hint="Stockée dans le trousseau sécurisé du téléphone. Chaque recherche consomme 100 unités de quota (10 000 / jour par défaut)."
                 />
                 <Text style={[type.meta, styles.label]}>Lecture et téléchargement via</Text>
@@ -89,7 +88,7 @@ export default function SettingsScreen() {
                 value={settings.invidiousInstance}
                 placeholder={INSTANCE_HINTS.invidious}
                 url
-                onCommit={(v) => set('invidiousInstance', normalizeInstance(v))}
+                onChange={(v) => set('invidiousInstance', v)}
                 hint="Adresse d’une instance publique ou auto-hébergée (liste sur docs.invidious.io/instances)."
               />
             )}
@@ -99,7 +98,7 @@ export default function SettingsScreen() {
                 value={settings.pipedInstance}
                 placeholder={INSTANCE_HINTS.piped}
                 url
-                onCommit={(v) => set('pipedInstance', normalizeInstance(v))}
+                onChange={(v) => set('pipedInstance', v)}
                 hint="Adresse de l’API, pas du site web (souvent « pipedapi.… »)."
               />
             )}
@@ -202,24 +201,22 @@ function Toggle({ label, hint, value, onChange }: { label: string; hint?: string
   );
 }
 
-/** Champ texte enregistré à la validation (pas à chaque frappe). */
-function Field({ label, value, placeholder, hint, secure, url, onCommit }: { label: string; value: string; placeholder?: string; hint?: string; secure?: boolean; url?: boolean; onCommit: (v: string) => void }) {
-  const [draft, setDraft] = useState(value);
+/**
+ * Champ texte enregistré à chaque frappe. Ne pas attendre la perte du focus :
+ * sur Android, fermer le clavier (bouton retour) ou toucher un bouton ne la
+ * déclenche pas, et la valeur était perdue. L'adresse est nettoyée à l'usage
+ * (createSource), pas pendant la saisie.
+ */
+function Field({ label, value, placeholder, hint, secure, url, onChange }: { label: string; value: string; placeholder?: string; hint?: string; secure?: boolean; url?: boolean; onChange: (v: string) => void }) {
   const [reveal, setReveal] = useState(false);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => {
-    if (draft !== value) onCommit(draft);
-  };
   return (
     <View style={styles.field}>
       <Text style={[type.meta, styles.label]}>{label}</Text>
       <View style={styles.inputWrap}>
         <TextInput
           style={styles.input}
-          value={draft}
-          onChangeText={setDraft}
-          onEndEditing={commit}
-          onSubmitEditing={commit}
+          value={value}
+          onChangeText={onChange}
           placeholder={placeholder}
           placeholderTextColor={colors.textFaint}
           autoCapitalize="none"

@@ -288,6 +288,9 @@ describe('source YouTube Data API', () => {
     assert.throws(() => createSource({ ...DEFAULT_SETTINGS, source: 'youtube' }));
     const yt = createSource({ ...DEFAULT_SETTINGS, source: 'youtube', youtubeApiKey: 'K', invidiousInstance: 'inv.test' });
     assert.equal(yt.label, 'YouTube Data API + Invidious (inv.test)');
+    // Saisie brute (espaces, sans https, slash final) : nettoyée à l'usage.
+    const piped = createSource({ ...DEFAULT_SETTINGS, source: 'piped', pipedInstance: '  pipedapi.adminforge.de/ ' });
+    assert.equal(piped.label, 'Piped (pipedapi.adminforge.de)');
   });
 });
 
