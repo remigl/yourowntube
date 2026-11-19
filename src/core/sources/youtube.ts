@@ -96,7 +96,7 @@ export class YouTubeDataSource implements VideoSource {
     return { ...toSummary(v), description: v.snippet?.description, related: [] };
   }
 
-  getPlayback(id: string): Promise<PlaybackInfo> {
+  getPlayback(id: string, opts?: { fresh?: boolean }): Promise<PlaybackInfo> {
     if (!this.streams) {
       return Promise.reject(
         new AppError(
@@ -105,7 +105,7 @@ export class YouTubeDataSource implements VideoSource {
         ),
       );
     }
-    return this.streams.getPlayback(id);
+    return this.streams.getPlayback(id, opts);
   }
 
   async getChannelVideos(channelId: string): Promise<VideoSummary[]> {

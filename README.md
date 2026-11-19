@@ -5,7 +5,7 @@ Pas de Shorts, pas de publicité, pas de commentaires, pas de likes, pas de fil 
 
 - Un seul écran principal, **Explorer** : recherche, reprise de lecture, recherches récentes, vidéos enregistrées, historique.
 - Lecteur intégré : lecture/pause, ±10 s (boutons ou double-tap sur les côtés), barre de progression, volume, plein écran avec rotation, lecture en arrière-plan avec contrôles système, reprise là où vous vous étiez arrêté.
-- Téléchargement en un geste : la vidéo est enregistrée sur le téléphone, marquée **« Disponible hors ligne »**, et **la version locale est toujours lue en priorité** (lecture instantanée, sans réseau).
+- Téléchargement en un geste, **vidéo ou audio seul** : le fichier est enregistré sur le téléphone, marqué **« Disponible hors ligne »** (ou « Audio hors ligne »), et **la version locale est toujours lue en priorité** (lecture instantanée, sans réseau, écran éteint possible). Depuis un audio enregistré, « Regarder la vidéo » repasse en streaming.
 - Vidéos similaires sous le lecteur : recommandations de la source + même chaîne + même sujet, sans Shorts.
 - Historique local (vidéos regardées avec date et progression, recherches), suppression ligne par ligne ou totale.
 - Gestion du stockage : taille de chaque fichier, espace utilisé, espace libre, suppression individuelle ou par lot.

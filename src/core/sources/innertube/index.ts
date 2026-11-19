@@ -79,9 +79,9 @@ export class InnertubeSource implements VideoSource {
   }
 
   /** Réponse « player » (métadonnées + flux), avec repli sur un autre client. */
-  private async player(id: string): Promise<PlayerResult> {
+  private async player(id: string, fresh = false): Promise<PlayerResult> {
     const cached = this.players.get(id);
-    if (cached && Date.now() - cached.at < PLAYER_TTL_MS) return cached;
+    if (!fresh && cached && Date.now() - cached.at < PLAYER_TTL_MS) return cached;
     let reason = '';
     let status = '';
     for (const client of PLAYER_CLIENTS) {
@@ -171,10 +171,11 @@ export class InnertubeSource implements VideoSource {
     };
   }
 
-  async getPlayback(id: string): Promise<PlaybackInfo> {
-    const { data, client } = await this.player(id);
+  async getPlayback(id: string, opts: { fresh?: boolean } = {}): Promise<PlaybackInfo> {
+    const { data, client } = await this.player(id, opts.fresh);
     const sd: J = data.streamingData ?? {};
     const headers = { 'User-Agent': client.userAgent };
+    const origin = String(client.context.clientName);
     const live = !!data.videoDetails?.isLive;
     const duration = Number(data.videoDetails?.lengthSeconds ?? 0);
 
@@ -192,23 +193,40 @@ export class InnertubeSource implements VideoSource {
             sizeBytes: f.contentLength ? Number(f.contentLength) : undefined,
             kind: 'progressive',
             headers,
+            origin,
           }),
         ),
     );
 
     const manifest = live ? undefined : buildDashManifest((sd.adaptiveFormats ?? []) as AdaptiveFormat[], duration);
     const dash: StreamOption | undefined = manifest
-      ? { url: '', manifest, mimeType: 'application/dash+xml', quality: 'HD', muxed: true, kind: 'dash', headers }
+      ? { url: '', manifest, mimeType: 'application/dash+xml', quality: 'HD', muxed: true, kind: 'dash', headers, origin }
       : undefined;
     const hls: StreamOption | undefined = sd.hlsManifestUrl
-      ? { url: sd.hlsManifestUrl, mimeType: 'application/x-mpegURL', quality: 'Auto', muxed: true, kind: 'hls', headers }
+      ? { url: sd.hlsManifestUrl, mimeType: 'application/x-mpegURL', quality: 'Auto', muxed: true, kind: 'hls', headers, origin }
       : undefined;
 
     // HD d'abord (DASH, puis HLS), puis le fichier muxé, plus sûr mais limité.
     const candidates = (live ? [hls] : [dash, hls, ...muxed]).filter((s): s is StreamOption => !!s);
     if (candidates.length === 0) throw new AppError('no_stream', 'YouTube ne fournit aucun flux lisible pour cette vidéo.');
     const dims = largestFormat(data);
-    return { playback: candidates[0], candidates, downloadable: muxed, width: dims?.width, height: dims?.height };
+    const audio = ((sd.adaptiveFormats ?? []) as J[])
+      .filter((f) => !!f.url && /^audio\//.test(String(f.mimeType)))
+      .filter((f) => f.audioTrack?.audioIsDefault !== false) // piste d'origine, pas un doublage
+      .map(
+        (f): StreamOption => ({
+          url: f.url,
+          mimeType: String(f.mimeType).split(';')[0].trim(),
+          quality: f.bitrate ? `${Math.round(f.bitrate / 1000)} kbit/s` : 'Audio',
+          muxed: false,
+          sizeBytes: f.contentLength ? Number(f.contentLength) : undefined,
+          bitrate: f.bitrate,
+          kind: 'progressive',
+          headers,
+          origin,
+        }),
+      );
+    return { playback: candidates[0], candidates, downloadable: muxed, audio, width: dims?.width, height: dims?.height };
   }
 
   async getChannelVideos(channelId: string): Promise<VideoSummary[]> {

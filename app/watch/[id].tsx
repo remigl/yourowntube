@@ -25,7 +25,7 @@ import { colors, hitSlop, radius, space, type } from '../../src/theme';
 
 type PlayState =
   | { kind: 'loading' }
-  | { kind: 'ready'; streams: PlayStream[]; index: number; isLocal: boolean; startAt: number; aspect?: number }
+  | { kind: 'ready'; streams: PlayStream[]; index: number; isLocal: boolean; audioOnly: boolean; startAt: number; aspect?: number; artwork?: string }
   | { kind: 'error'; code: AppErrorCode; message: string }
   | { kind: 'short' };
 
@@ -65,6 +65,9 @@ function WatchContent({ id }: { id: string }) {
 
   const summaryRef = useRef(summary);
   summaryRef.current = summary;
+  const lastPos = useRef(0);
+  const refreshing = useRef(false);
+  const forceStream = useRef(false);
 
   /* ── Métadonnées : cache mémoire → base locale ── */
   useEffect(() => {
@@ -88,9 +91,14 @@ function WatchContent({ id }: { id: string }) {
           settings.resumePlayback ? getProgress(id) : Promise.resolve(null),
           downloads.localFileFor(id),
         ]);
-        const origin = choosePlaybackOrigin(!!local, online);
+        // « Regarder la vidéo » depuis un audio enregistré : on ignore le fichier local.
+        const preferStream = forceStream.current && online;
+        const origin = choosePlaybackOrigin(!!local && !preferStream, online);
         const known = summaryRef.current ?? local?.video;
-        const startAt = resumePosition(progress?.positionSec, progress?.durationSec ?? known?.durationSec);
+        const saved = resumePosition(progress?.positionSec, progress?.durationSec ?? known?.durationSec);
+        // Nouvelle tentative après un flux coupé : on reprend là où il s'est arrêté.
+        const startAt = refreshing.current && lastPos.current > 0 ? lastPos.current : saved;
+        const fresh = refreshing.current;
 
         if (origin === 'local' && local?.fileUri) {
           if (!summaryRef.current) setSummary(local.video);
@@ -102,6 +110,8 @@ function WatchContent({ id }: { id: string }) {
               streams: [{ uri: local.fileUri, contentType: 'progressive', label: 'local' }],
               index: 0,
               isLocal: true,
+              audioOnly: local.kind === 'audio',
+              artwork: local.thumbUri ?? undefined,
               startAt,
               aspect: w && h ? w / h : undefined,
             });
@@ -113,7 +123,7 @@ function WatchContent({ id }: { id: string }) {
         }
         if (!source) throw sourceError ?? new AppError('not_configured', 'Aucune source configurée.');
 
-        const info = await source.getPlayback(id);
+        const info = await source.getPlayback(id, { fresh });
         if (!alive) return;
         const candidate = {
           ...(known ?? { title: '', durationSec: null }),
@@ -131,7 +141,8 @@ function WatchContent({ id }: { id: string }) {
           // Manifeste DASH généré sur le téléphone : on l'écrit dans un fichier lisible par le lecteur.
           const uri = c.manifest ? await writeDashManifest(id, c.manifest).catch(() => '') : c.url;
           if (!uri) continue;
-          const label = c.kind === 'progressive' ? `${KIND_LABEL[c.kind]} ${c.quality}` : `${KIND_LABEL[c.kind]}${c.quality === 'HD' ? ' HD' : ''}`;
+          const base = c.kind === 'progressive' ? `${KIND_LABEL[c.kind]} ${c.quality}` : `${KIND_LABEL[c.kind]}${c.quality === 'HD' ? ' HD' : ''}`;
+          const label = c.origin && source.kind === 'device' ? `${base} via ${c.origin}` : base;
           streams.push({ uri, contentType: c.kind, headers: c.headers, label });
         }
         if (streams.length === 0) throw new AppError('no_stream', 'Aucun flux lisible sur cet appareil pour cette vidéo.');
@@ -140,6 +151,7 @@ function WatchContent({ id }: { id: string }) {
           streams,
           index: 0,
           isLocal: false,
+          audioOnly: false,
           startAt,
           aspect: info.width && info.height ? info.width / info.height : undefined,
         });
@@ -198,16 +210,25 @@ function WatchContent({ id }: { id: string }) {
     };
   }, [id, source, online, shortsPolicy]);
 
-  const lastPos = useRef(0);
 
   /** Flux en échec : on passe au suivant en gardant la position. */
   const playRef = useRef(play);
   playRef.current = play;
   const onStreamError = useCallback((): boolean => {
     const p = playRef.current;
-    if (p.kind !== 'ready' || p.index + 1 >= p.streams.length) return false;
-    setPlay({ ...p, index: p.index + 1, startAt: lastPos.current > 0 ? lastPos.current : p.startAt });
-    return true;
+    if (p.kind !== 'ready') return false;
+    if (p.index + 1 < p.streams.length) {
+      setPlay({ ...p, index: p.index + 1, startAt: lastPos.current > 0 ? lastPos.current : p.startAt });
+      return true;
+    }
+    // Tous les flux ont échoué après avoir joué un moment (flux coupé) :
+    // une seule nouvelle demande de flux neufs, reprise à la même position.
+    if (!p.isLocal && lastPos.current > 0 && !refreshing.current) {
+      refreshing.current = true;
+      setAttempt((n) => n + 1);
+      return true;
+    }
+    return false;
   }, []);
 
   const onProgress = useCallback(
@@ -221,6 +242,12 @@ function WatchContent({ id }: { id: string }) {
     },
     [id, settings.saveWatchHistory, source?.kind],
   );
+
+  /** « Réessayer » : flux neufs, reprise à la dernière position. */
+  const retry = useCallback(() => {
+    refreshing.current = true;
+    setAttempt((n) => n + 1);
+  }, []);
 
   const goBack = useCallback(() => (router.canGoBack() ? router.back() : router.replace('/')), []);
   const title = summary?.title ?? '';
@@ -244,19 +271,20 @@ function WatchContent({ id }: { id: string }) {
           }
           title={title}
           channel={channel}
-          artwork={summary?.thumbnail}
+          artwork={play.artwork ?? summary?.thumbnail}
           startAt={play.startAt}
           isLocal={play.isLocal}
+          audioOnly={play.audioOnly}
           backgroundPlayback={settings.backgroundPlayback}
           aspect={play.aspect}
           fullscreen={fullscreen}
           onFullscreenChange={setFullscreen}
           onProgress={onProgress}
-          onRetry={() => setAttempt((n) => n + 1)}
+          onRetry={retry}
           onBack={goBack}
         />
       ) : (
-        <PlayerPlaceholder state={play} video={summary} onRetry={() => setAttempt((n) => n + 1)} onBack={goBack} />
+        <PlayerPlaceholder state={play} video={summary} onRetry={retry} onBack={goBack} />
       )}
 
       {play.kind === 'short' ? (
@@ -289,11 +317,28 @@ function WatchContent({ id }: { id: string }) {
                 <DownloadButton video={summary} />
                 {play.kind === 'ready' && (
                   <View style={[styles.origin, play.isLocal && { backgroundColor: colors.successSoft }]}>
-                    <Ionicons name={play.isLocal ? 'phone-portrait-outline' : 'wifi'} size={14} color={play.isLocal ? colors.success : colors.textDim} />
+                    <Ionicons
+                      name={play.audioOnly ? 'musical-notes' : play.isLocal ? 'phone-portrait-outline' : 'wifi'}
+                      size={14}
+                      color={play.isLocal ? colors.success : colors.textDim}
+                    />
                     <Text style={[styles.originText, play.isLocal && { color: colors.success }]}>
-                      {play.isLocal ? 'Lecture locale' : 'Streaming'}
+                      {play.audioOnly ? 'Audio local' : play.isLocal ? 'Lecture locale' : 'Streaming'}
                     </Text>
                   </View>
+                )}
+                {play.kind === 'ready' && play.audioOnly && online && !!source && (
+                  <Pressable
+                    style={({ pressed }) => [styles.origin, pressed && { opacity: 0.8 }]}
+                    onPress={() => {
+                      forceStream.current = true;
+                      setAttempt((n) => n + 1);
+                    }}
+                    accessibilityLabel="Regarder la vidéo en streaming"
+                  >
+                    <Ionicons name="videocam-outline" size={14} color={colors.text} />
+                    <Text style={[styles.originText, { color: colors.text }]}>Regarder la vidéo</Text>
+                  </Pressable>
                 )}
               </View>
               {!!details?.description && (

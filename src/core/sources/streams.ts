@@ -16,6 +16,14 @@ export function sortStreams(list: StreamOption[]): StreamOption[] {
   });
 }
 
+/** Meilleure piste audio : AAC (m4a, lisible partout) d'abord, puis débit décroissant. */
+export function pickAudioStream(list: StreamOption[]): StreamOption | undefined {
+  return [...list].sort((a, b) => {
+    const mp4 = Number(b.mimeType === 'audio/mp4') - Number(a.mimeType === 'audio/mp4');
+    return mp4 !== 0 ? mp4 : (b.bitrate ?? 0) - (a.bitrate ?? 0);
+  })[0];
+}
+
 /**
  * Choisit le flux téléchargeable le plus proche de la qualité souhaitée, sans
  * la dépasser si possible (sinon le plus petit disponible).

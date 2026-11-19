@@ -176,14 +176,16 @@ function DownloadRow({
     subtitle = entry.error ?? 'Échec du téléchargement';
     tag = 'Toucher pour réessayer';
   } else {
-    subtitle = [formatBytes(entry.sizeBytes), entry.quality, entry.completedAt ? formatShortDate(entry.completedAt) : null].filter(Boolean).join(' · ');
-    tag = 'Disponible hors ligne';
+    subtitle = [entry.kind === 'audio' ? 'Audio' : null, formatBytes(entry.sizeBytes), entry.quality, entry.completedAt ? formatShortDate(entry.completedAt) : null]
+      .filter(Boolean)
+      .join(' · ');
+    tag = entry.kind === 'audio' ? 'Audio hors ligne' : 'Disponible hors ligne';
   }
 
   const onPress = () => {
     if (selecting) return onToggle();
     if (isDone) return openVideo(entry.video);
-    if (entry.status === 'error' && source) void downloads.start(entry.video, source, settings.downloadMaxHeight);
+    if (entry.status === 'error' && source) void downloads.start(entry.video, source, settings.downloadMaxHeight, entry.kind);
   };
 
   return (

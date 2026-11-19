@@ -41,6 +41,7 @@ interface InvFormat {
   size?: string;
   container?: string;
   clen?: string;
+  bitrate?: string;
 }
 interface InvVideo extends InvVideoItem {
   description?: string;
@@ -129,7 +130,22 @@ export class InvidiousSource implements VideoSource {
       .map((f) => parseSize(f.size))
       .filter((d): d is { width: number; height: number } => !!d)
       .sort((a, b) => b.height - a.height)[0] ?? (best?.width && best.height ? { width: best.width, height: best.height } : undefined);
-    return { playback: candidates[0], candidates, downloadable: muxed, width: dims?.width, height: dims?.height };
+    const audio = (v.adaptiveFormats ?? [])
+      .filter((f) => /^audio\//.test(f.type ?? '') && f.url)
+      .map((f): StreamOption => {
+        const bitrate = f.bitrate ? Number(f.bitrate) : undefined;
+        return {
+          url: withLocal(absolutize(this.base, f.url)!),
+          mimeType: (f.type ?? 'audio/mp4').split(';')[0].trim(),
+          quality: bitrate ? `${Math.round(bitrate / 1000)} kbit/s` : 'Audio',
+          muxed: false,
+          sizeBytes: f.clen ? Number(f.clen) : undefined,
+          bitrate,
+          kind: 'progressive',
+          origin: this.label,
+        };
+      });
+    return { playback: candidates[0], candidates, downloadable: muxed, audio, width: dims?.width, height: dims?.height };
   }
 
   async getChannelVideos(channelId: string): Promise<VideoSummary[]> {

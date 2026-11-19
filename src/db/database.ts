@@ -57,6 +57,8 @@ const MIGRATIONS: string[] = [
     value         TEXT NOT NULL
   );
   `,
+  // v2 — téléchargement vidéo ou audio seul
+  `ALTER TABLE downloads ADD COLUMN kind TEXT NOT NULL DEFAULT 'video';`,
 ];
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;

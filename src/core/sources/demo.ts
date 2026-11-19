@@ -70,7 +70,7 @@ export class DemoSource implements VideoSource {
       sizeBytes: v.sizeBytes,
       kind: 'progressive' as const,
     };
-    return { playback: stream, candidates: [stream], downloadable: [stream], width: v.width, height: v.height };
+    return { playback: stream, candidates: [stream], downloadable: [stream], audio: [], width: v.width, height: v.height };
   }
 
   async getChannelVideos(channelId: string): Promise<VideoSummary[]> {

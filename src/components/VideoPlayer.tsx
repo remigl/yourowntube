@@ -3,6 +3,7 @@ import { useEvent, useEventListener } from 'expo';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { StatusBar } from 'expo-status-bar';
+import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -40,6 +41,8 @@ export interface VideoPlayerProps {
   /** Position de reprise en secondes. */
   startAt: number;
   isLocal: boolean;
+  /** Fichier audio seul : on affiche la miniature à la place de l'image. */
+  audioOnly?: boolean;
   backgroundPlayback: boolean;
   /** Rapport largeur / hauteur de la vidéo, si connu. */
   aspect?: number;
@@ -64,7 +67,7 @@ export interface VideoPlayerProps {
  * volume, plein écran, reprise, lecture en arrière-plan.
  */
 export function VideoPlayer(props: VideoPlayerProps) {
-  const { uri, contentType, headers, title, channel, artwork, startAt, isLocal, backgroundPlayback, aspect, fullscreen, onFullscreenChange, onProgress, onRetry, onBack, onStreamError, errorText } = props;
+  const { uri, contentType, headers, title, channel, artwork, startAt, isLocal, audioOnly, backgroundPlayback, aspect, fullscreen, onFullscreenChange, onProgress, onRetry, onBack, onStreamError, errorText } = props;
   const insets = useSafeAreaInsets();
 
   // Source figée au montage : expo-video recrée le lecteur si l'objet source
@@ -309,6 +312,20 @@ export function VideoPlayer(props: VideoPlayerProps) {
         startsPictureInPictureAutomatically={backgroundPlayback}
       />
 
+      {audioOnly && (
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          {!!artwork && <Image source={{ uri: artwork }} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={18} />}
+          <View style={[StyleSheet.absoluteFill, styles.audioScrim]} />
+          <View style={styles.audioCenter}>
+            {!!artwork && <Image source={{ uri: artwork }} style={styles.audioArt} contentFit="cover" />}
+            <View style={styles.audioBadge}>
+              <Ionicons name="musical-notes" size={12} color="#fff" />
+              <Text style={styles.audioBadgeText}>Audio seul</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
       <Pressable style={StyleSheet.absoluteFill} onPress={onSurfacePress} accessibilityLabel="Afficher les contrôles" />
 
       {seekFlash && (
@@ -518,6 +535,11 @@ const styles = StyleSheet.create({
   },
   errorBox: { backgroundColor: 'rgba(0,0,0,0.7)', gap: space.sm, paddingHorizontal: space.xl },
   errorText: { color: '#fff', textAlign: 'center', fontSize: 14 },
+  audioScrim: { backgroundColor: 'rgba(0,0,0,0.45)' },
+  audioCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: space.sm },
+  audioArt: { width: '42%', aspectRatio: 16 / 9, borderRadius: radius.md },
+  audioBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: 'rgba(0,0,0,0.5)' },
+  audioBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   errorDetail: { color: 'rgba(255,255,255,0.55)', textAlign: 'center', fontSize: 11.5 },
   retry: {
     flexDirection: 'row',

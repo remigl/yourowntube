@@ -43,6 +43,8 @@ export function safeName(id: string): string {
 
 export function extensionFor(mimeType: string | null | undefined): string {
   if (!mimeType) return 'mp4';
+  if (mimeType.startsWith('audio/mp4')) return 'm4a';
+  if (mimeType.startsWith('audio/webm')) return 'weba';
   if (mimeType.includes('webm')) return 'webm';
   if (mimeType.includes('3gpp')) return '3gp';
   return 'mp4';

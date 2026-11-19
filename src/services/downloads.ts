@@ -1,5 +1,5 @@
 import { AppError, describeError } from '../core/errors';
-import { pickDownloadStream } from '../core/sources/streams';
+import { pickAudioStream, pickDownloadStream } from '../core/sources/streams';
 import type { VideoSource } from '../core/sources/types';
 import { thumbnailCandidates } from '../core/thumbnails';
 import type { VideoSummary } from '../core/types';
@@ -10,6 +10,7 @@ import {
   saveDownload,
   upsertVideo,
   type DownloadEntry,
+  type DownloadKind,
 } from '../db/repo';
 import { dataEvents } from '../lib/emitter';
 import {
@@ -49,23 +50,33 @@ class DownloadManager {
     return this.active.has(videoId);
   }
 
-  async start(video: VideoSummary, source: VideoSource, maxHeight: number): Promise<void> {
+  /**
+   * Télécharge la vidéo (fichier audio + vidéo) ou l'audio seul. Un
+   * téléchargement existant est conservé jusqu'à ce que le nouveau réussisse.
+   */
+  async start(video: VideoSummary, source: VideoSource, maxHeight: number, kind: DownloadKind = 'video'): Promise<void> {
     if (this.active.has(video.id)) return;
     const job: ActiveDownload = { resumable: null, ratio: 0, cancelled: false };
     this.active.set(video.id, job);
+    const previous = await getDownload(video.id).catch(() => null);
     try {
       await ensureDirs();
       await upsertVideo(video, source.kind);
-      await saveDownload(video.id, { status: 'downloading', progress: 0, error: null });
+      await saveDownload(video.id, { status: 'downloading', kind, progress: 0, error: null });
 
       const info = await source.getPlayback(video.id);
-      const stream = pickDownloadStream(info.downloadable, maxHeight);
+      const stream = kind === 'audio' ? pickAudioStream(info.audio) : pickDownloadStream(info.downloadable, maxHeight);
       if (!stream) {
-        throw new AppError('no_stream', 'Aucun fichier téléchargeable n’est proposé pour cette vidéo par cette source.');
+        throw new AppError(
+          'no_stream',
+          kind === 'audio'
+            ? 'Aucune piste audio téléchargeable n’est proposée pour cette vidéo par cette source.'
+            : 'Aucun fichier téléchargeable n’est proposé pour cette vidéo par cette source.',
+        );
       }
       if (job.cancelled) return;
 
-      const finalUri = `${VIDEOS_DIR}${safeName(video.id)}.${extensionFor(stream.mimeType)}`;
+      const finalUri = `${VIDEOS_DIR}${safeName(video.id)}${kind === 'audio' ? '.audio' : ''}.${extensionFor(stream.mimeType)}`;
       const partUri = `${finalUri}.part`;
       job.partUri = partUri;
       let lastWrite = 0;
@@ -92,6 +103,11 @@ class DownloadManager {
       await FileSystem.moveAsync({ from: partUri, to: finalUri });
       const size = await fileSize(finalUri);
       if (size === 0) throw new AppError('storage', 'Le fichier téléchargé est vide.');
+      if (stream.sizeBytes && size < stream.sizeBytes * 0.98) {
+        await deleteFile(finalUri);
+        throw new AppError('http', 'Téléchargement incomplet : le serveur a coupé le flux en cours de route.');
+      }
+      if (previous?.fileUri && previous.fileUri !== finalUri) await deleteFile(previous.fileUri);
 
       const thumbUri = await this.saveThumbnail(video);
       await saveDownload(video.id, {
@@ -99,6 +115,7 @@ class DownloadManager {
         fileUri: finalUri,
         thumbUri,
         sizeBytes: size,
+        kind,
         quality: stream.quality,
         mimeType: stream.mimeType,
         progress: 1,
@@ -108,7 +125,12 @@ class DownloadManager {
     } catch (e) {
       if (job.cancelled) return;
       await deleteFile(job.partUri);
-      await saveDownload(video.id, { status: 'error', error: describeError(e), progress: 0 });
+      if (previous?.status === 'done' && (await fileExists(previous.fileUri))) {
+        // L'ancien téléchargement reste utilisable : on le restaure.
+        await saveDownload(video.id, { status: 'done', kind: previous.kind, progress: 1, error: null });
+      } else {
+        await saveDownload(video.id, { status: 'error', error: describeError(e), progress: 0 });
+      }
     } finally {
       this.active.delete(video.id);
       dataEvents.emit('downloads');

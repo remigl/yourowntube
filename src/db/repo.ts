@@ -201,10 +201,12 @@ export async function clearSearches(): Promise<void> {
 /* ───────────────────────────── Téléchargements ───────────────────────────── */
 
 export type DownloadStatus = 'downloading' | 'done' | 'error';
+export type DownloadKind = 'video' | 'audio';
 
 export interface DownloadEntry {
   video: VideoSummary;
   status: DownloadStatus;
+  kind: DownloadKind;
   fileUri: string | null;
   thumbUri: string | null;
   sizeBytes: number | null;
@@ -218,6 +220,7 @@ export interface DownloadEntry {
 
 type DownloadRow = VideoRow & {
   status: DownloadStatus;
+  kind: DownloadKind | null;
   file_uri: string | null;
   thumb_uri: string | null;
   size_bytes: number | null;
@@ -233,6 +236,7 @@ function rowToDownload(r: DownloadRow): DownloadEntry {
   return {
     video: rowToVideo(r),
     status: r.status,
+    kind: r.kind === 'audio' ? 'audio' : 'video',
     fileUri: r.file_uri,
     thumbUri: r.thumb_uri,
     sizeBytes: r.size_bytes,
@@ -245,7 +249,7 @@ function rowToDownload(r: DownloadRow): DownloadEntry {
   };
 }
 
-const DOWNLOAD_SELECT = `SELECT ${VIDEO_COLUMNS}, d.status, d.file_uri, d.thumb_uri, d.size_bytes, d.quality, d.mime_type,
+const DOWNLOAD_SELECT = `SELECT ${VIDEO_COLUMNS}, d.status, d.kind, d.file_uri, d.thumb_uri, d.size_bytes, d.quality, d.mime_type,
                                 d.progress, d.error, d.created_at, d.completed_at
                            FROM downloads d JOIN videos v ON v.id = d.video_id`;
 
@@ -267,6 +271,7 @@ export async function saveDownload(
   videoId: string,
   patch: Partial<{
     status: DownloadStatus;
+    kind: DownloadKind;
     fileUri: string | null;
     thumbUri: string | null;
     sizeBytes: number | null;
@@ -286,6 +291,7 @@ export async function saveDownload(
   );
   const map: Record<string, string> = {
     status: 'status',
+    kind: 'kind',
     fileUri: 'file_uri',
     thumbUri: 'thumb_uri',
     sizeBytes: 'size_bytes',

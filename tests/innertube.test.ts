@@ -6,6 +6,7 @@ import { excludeShorts } from '../src/core/shorts';
 import type { FetchLike } from '../src/core/sources/http';
 import { InnertubeSource } from '../src/core/sources/innertube';
 import { buildDashManifest } from '../src/core/sources/innertube/dash';
+import { pickAudioStream } from '../src/core/sources/streams';
 import { collectVideos, findContinuation, parseCount } from '../src/core/sources/innertube/parse';
 import { searchParams } from '../src/core/sources/innertube/searchParams';
 import { DEFAULT_FILTERS } from '../src/core/types';
@@ -216,9 +217,18 @@ describe('Innertube — source', () => {
     assert.equal(p.downloadable[0].quality, '360p');
     assert.equal(p.downloadable[0].sizeBytes, 12345678);
     assert.deepEqual([p.width, p.height], [1920, 1080]);
+    // Audio seul : AAC (m4a) préféré à Opus même si son débit est plus bas.
+    assert.deepEqual(p.audio.map((x) => x.mimeType).sort(), ['audio/mp4', 'audio/webm']);
+    const best = pickAudioStream(p.audio)!;
+    assert.equal(best.mimeType, 'audio/mp4');
+    assert.equal(best.quality, '140 kbit/s');
+    assert.equal(best.origin, 'IOS');
     // La réponse player est mise en cache : pas de nouvel appel pour les détails.
     await src.getPlayback('aaaaaaaaaaa');
     assert.equal(calls.length, 2);
+    // fresh : on ignore le cache et on redemande des flux neufs.
+    await src.getPlayback('aaaaaaaaaaa', { fresh: true });
+    assert.equal(calls.length, 4);
   });
 
   it('explique un blocage anti-robot', async () => {

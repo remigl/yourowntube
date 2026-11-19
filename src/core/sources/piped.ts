@@ -48,6 +48,7 @@ interface PipedStreams {
   livestream?: boolean;
   tags?: string[];
   videoStreams?: PipedStream[];
+  audioStreams?: (PipedStream & { bitrate?: number })[];
   relatedStreams?: PipedItem[];
 }
 
@@ -125,7 +126,21 @@ export class PipedSource implements VideoSource {
     // Direct : HLS seul. Sinon : fichier muxé (le plus simple à lire), puis HLS, puis DASH.
     const candidates = (s.livestream ? [hls] : [...downloadable, hls, dash]).filter((x): x is StreamOption => !!x);
     if (candidates.length === 0) throw new AppError('no_stream', 'Aucun flux lisible pour cette vidéo sur cette instance.');
-    return { playback: candidates[0], candidates, downloadable, ...dims };
+    const audio = (s.audioStreams ?? [])
+      .filter((a) => !!a.url)
+      .map(
+        (a): StreamOption => ({
+          url: a.url,
+          mimeType: a.mimeType ?? 'audio/mp4',
+          quality: a.quality ?? (a.bitrate ? `${Math.round(a.bitrate / 1000)} kbit/s` : 'Audio'),
+          muxed: false,
+          sizeBytes: a.contentLength && a.contentLength > 0 ? a.contentLength : undefined,
+          bitrate: a.bitrate,
+          kind: 'progressive',
+          origin: this.label,
+        }),
+      );
+    return { playback: candidates[0], candidates, downloadable, audio, ...dims };
   }
 
   async getChannelVideos(channelId: string): Promise<VideoSummary[]> {

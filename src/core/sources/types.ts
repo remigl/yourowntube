@@ -22,7 +22,8 @@ export interface VideoSource {
   getDetails(id: string): Promise<VideoDetails>;
 
   /** Flux lisibles (streaming) et téléchargeables (fichier unique). */
-  getPlayback(id: string): Promise<PlaybackInfo>;
+  /** `fresh` : ignorer tout cache et redemander des flux neufs. */
+  getPlayback(id: string, opts?: { fresh?: boolean }): Promise<PlaybackInfo>;
 
   /** Dernières vidéos de la chaîne. */
   getChannelVideos(channelId: string): Promise<VideoSummary[]>;

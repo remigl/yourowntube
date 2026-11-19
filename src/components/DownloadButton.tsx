@@ -1,19 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatBytes } from '../core/format';
 import type { VideoSummary } from '../core/types';
+import type { DownloadKind } from '../db/repo';
 import { useDownloadState } from '../hooks/useDownloadState';
 import { downloads } from '../services/downloads';
 import { useApp } from '../state/AppContext';
 import { colors, pct as toPct, radius, space } from '../theme';
+import { OptionSheet } from './OptionSheet';
 
-/** Bouton « Télécharger » à quatre états : absent, en cours, disponible, erreur. */
+/**
+ * Bouton « Télécharger » : propose la vidéo ou l'audio seul, puis affiche
+ * l'état (en cours, disponible hors ligne, erreur).
+ */
 export function DownloadButton({ video }: { video: VideoSummary }) {
   const { source, online, settings } = useApp();
   const { entry, progress, active } = useDownloadState(video.id);
+  const [choosing, setChoosing] = useState(false);
 
-  const start = () => {
+  const start = (kind: DownloadKind) => {
     if (!source) {
       Alert.alert('Source non configurée', 'Configurez une source dans les réglages pour télécharger.');
       return;
@@ -22,8 +29,22 @@ export function DownloadButton({ video }: { video: VideoSummary }) {
       Alert.alert('Hors ligne', 'Une connexion est nécessaire pour télécharger cette vidéo.');
       return;
     }
-    void downloads.start(video, source, settings.downloadMaxHeight);
+    void downloads.start(video, source, settings.downloadMaxHeight, kind);
   };
+
+  const sheet = (
+    <OptionSheet<DownloadKind>
+      visible={choosing}
+      title="Enregistrer sur le téléphone"
+      options={[
+        { value: 'video', label: 'Vidéo', hint: `Image et son, jusqu’à ${settings.downloadMaxHeight}p selon la source` },
+        { value: 'audio', label: 'Audio seul', hint: 'Beaucoup plus léger, pour écouter hors ligne, écran éteint' },
+      ]}
+      selected={entry?.status === 'done' ? entry.kind : undefined}
+      onSelect={start}
+      onClose={() => setChoosing(false)}
+    />
+  );
 
   if (active) {
     const pct = Math.round(progress * 100);
@@ -40,46 +61,69 @@ export function DownloadButton({ video }: { video: VideoSummary }) {
       >
         <View style={[styles.fill, { width: toPct(Math.max(0.04, progress)) }]} />
         {pct === 0 ? <ActivityIndicator size="small" color={colors.accent} /> : <Ionicons name="close" size={16} color={colors.accent} />}
-        <Text style={[styles.label, { color: colors.accent }]}>{pct === 0 ? 'Préparation…' : `${pct} %`}</Text>
-      </Pressable>
-    );
-  }
-
-  if (entry?.status === 'done') {
-    return (
-      <Pressable
-        style={[styles.btn, styles.done]}
-        onPress={() =>
-          Alert.alert('Disponible hors ligne', `${formatBytes(entry.sizeBytes)}${entry.quality ? ` · ${entry.quality}` : ''}`, [
-            { text: 'Fermer', style: 'cancel' },
-            { text: 'Supprimer le fichier', style: 'destructive', onPress: () => void downloads.remove([video.id]) },
-          ])
-        }
-        accessibilityLabel="Disponible hors ligne"
-      >
-        <Ionicons name="cloud-done" size={16} color={colors.success} />
-        <Text style={[styles.label, { color: colors.success }]}>Disponible hors ligne</Text>
-        <Text style={styles.size}>{formatBytes(entry.sizeBytes)}</Text>
-      </Pressable>
-    );
-  }
-
-  if (entry?.status === 'error') {
-    return (
-      <Pressable style={[styles.btn, styles.error]} onPress={start} accessibilityLabel="Réessayer le téléchargement">
-        <Ionicons name="refresh" size={16} color={colors.danger} />
-        <Text style={[styles.label, { color: colors.danger }]} numberOfLines={1}>
-          Échec — réessayer
+        <Text style={[styles.label, { color: colors.accent }]}>
+          {pct === 0 ? 'Préparation…' : `${entry?.kind === 'audio' ? 'Audio ' : ''}${pct} %`}
         </Text>
       </Pressable>
     );
   }
 
+  if (entry?.status === 'done') {
+    const audio = entry.kind === 'audio';
+    return (
+      <>
+        <Pressable
+          style={[styles.btn, styles.done]}
+          onPress={() =>
+            Alert.alert(audio ? 'Audio hors ligne' : 'Disponible hors ligne', `${formatBytes(entry.sizeBytes)}${entry.quality ? ` · ${entry.quality}` : ''}`, [
+              { text: 'Fermer', style: 'cancel' },
+              { text: audio ? 'Remplacer par la vidéo' : 'Remplacer par l’audio seul', onPress: () => start(audio ? 'video' : 'audio') },
+              { text: 'Supprimer le fichier', style: 'destructive', onPress: () => void downloads.remove([video.id]) },
+            ])
+          }
+          accessibilityLabel={audio ? 'Audio disponible hors ligne' : 'Disponible hors ligne'}
+        >
+          <Ionicons name={audio ? 'musical-notes' : 'cloud-done'} size={16} color={colors.success} />
+          <Text style={[styles.label, { color: colors.success }]}>{audio ? 'Audio hors ligne' : 'Disponible hors ligne'}</Text>
+          <Text style={styles.size}>{formatBytes(entry.sizeBytes)}</Text>
+        </Pressable>
+        {sheet}
+      </>
+    );
+  }
+
+  if (entry?.status === 'error') {
+    return (
+      <>
+        <Pressable
+          style={[styles.btn, styles.error]}
+          onPress={() =>
+            Alert.alert('Échec du téléchargement', entry.error ?? undefined, [
+              { text: 'Fermer', style: 'cancel' },
+              { text: 'Réessayer', onPress: () => start(entry.kind) },
+              { text: 'Autre format…', onPress: () => setChoosing(true) },
+            ])
+          }
+          accessibilityLabel="Échec du téléchargement"
+        >
+          <Ionicons name="refresh" size={16} color={colors.danger} />
+          <Text style={[styles.label, { color: colors.danger }]} numberOfLines={1}>
+            Échec — réessayer
+          </Text>
+        </Pressable>
+        {sheet}
+      </>
+    );
+  }
+
   return (
-    <Pressable style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]} onPress={start} accessibilityLabel="Télécharger">
-      <Ionicons name="download-outline" size={17} color={colors.text} />
-      <Text style={styles.label}>Télécharger</Text>
-    </Pressable>
+    <>
+      <Pressable style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]} onPress={() => setChoosing(true)} accessibilityLabel="Télécharger">
+        <Ionicons name="download-outline" size={17} color={colors.text} />
+        <Text style={styles.label}>Télécharger</Text>
+      </Pressable>
+      {sheet}
+    </>
   );
 }
 

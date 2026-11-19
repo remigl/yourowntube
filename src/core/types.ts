@@ -47,11 +47,15 @@ export interface StreamOption {
   muxed: boolean;
   /** Taille annoncée par la source, en octets. */
   sizeBytes?: number;
+  /** Débit en bits/s (pistes audio). */
+  bitrate?: number;
   kind: 'progressive' | 'hls' | 'dash';
   /** En-têtes HTTP à envoyer pour lire / télécharger ce flux (User-Agent…). */
   headers?: Record<string, string>;
   /** Manifeste DASH généré localement (à écrire dans un fichier avant lecture). */
   manifest?: string;
+  /** Qui a fourni le flux (client Innertube, instance…), pour le diagnostic. */
+  origin?: string;
 }
 
 export interface PlaybackInfo {
@@ -64,6 +68,8 @@ export interface PlaybackInfo {
   candidates: StreamOption[];
   /** Flux muxés téléchargeables en un seul fichier, du meilleur au moins bon. */
   downloadable: StreamOption[];
+  /** Pistes audio seules téléchargeables (écoute hors ligne), de la meilleure à la moins bonne. */
+  audio: StreamOption[];
   width?: number;
   height?: number;
 }
