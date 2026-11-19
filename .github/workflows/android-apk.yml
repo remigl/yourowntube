@@ -1,0 +1,60 @@
+name: APK Android
+
+# Construit un APK installable directement sur le téléphone, sans ordinateur.
+# Onglet Actions → « APK Android » → dernière exécution → artefact « yourowntube-apk ».
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      CI: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Installer les dépendances
+        run: npm install --no-audit --no-fund
+
+      - name: Aligner les versions sur le SDK Expo
+        run: npx expo install --fix
+
+      - name: Générer le projet Android natif
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Compiler l'APK (release, signé avec la clé de debug)
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yourowntube-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Publier l'APK sur la release (tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/release/app-release.apk
