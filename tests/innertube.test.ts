@@ -204,16 +204,18 @@ describe('Innertube — source', () => {
     const src = new InnertubeSource({
       http: {
         fetchImpl: mockPost((_u, body) => {
-          if (body.context.client.clientName === 'ANDROID_VR') return [200, { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in' } }];
+          if (body.context.client.clientName === 'VISIONOS') return [200, { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in' } }];
           return [200, PLAYER_OK];
         }, calls),
       },
     });
     const p = await src.getPlayback('aaaaaaaaaaa');
-    assert.deepEqual(calls.map((c) => c.body.context.client.clientName), ['ANDROID_VR', 'IOS']);
+    assert.deepEqual(calls.map((c) => c.body.context.client.clientName), ['VISIONOS', 'ANDROID_VR']);
+    assert.equal(calls[0].body.context.client.clientVersion, '1.02');
+    assert.equal(calls[0].headers['X-YouTube-Client-Name'], '101');
     assert.deepEqual(p.candidates.map((c) => c.kind), ['dash', 'progressive']);
     assert.ok(p.candidates[0].manifest?.startsWith('<?xml'));
-    assert.match(p.candidates[1].headers?.['User-Agent'] ?? '', /com\.google\.ios\.youtube/);
+    assert.match(p.candidates[1].headers?.['User-Agent'] ?? '', /vr\.oculus/);
     assert.equal(p.downloadable[0].quality, '360p');
     assert.equal(p.downloadable[0].sizeBytes, 12345678);
     assert.deepEqual([p.width, p.height], [1920, 1080]);
@@ -222,13 +224,42 @@ describe('Innertube — source', () => {
     const best = pickAudioStream(p.audio)!;
     assert.equal(best.mimeType, 'audio/mp4');
     assert.equal(best.quality, '140 kbit/s');
-    assert.equal(best.origin, 'IOS');
+    assert.equal(best.origin, 'ANDROID_VR');
     // La réponse player est mise en cache : pas de nouvel appel pour les détails.
     await src.getPlayback('aaaaaaaaaaa');
     assert.equal(calls.length, 2);
     // fresh : on ignore le cache et on redemande des flux neufs.
     await src.getPlayback('aaaaaaaaaaa', { fresh: true });
     assert.equal(calls.length, 4);
+  });
+
+  it('avec le client IOS, ne garde que le HLS (URL directes coupées sans PO token)', async () => {
+    const calls: Call[] = [];
+    const iosOnly = { ...PLAYER_OK, streamingData: { ...PLAYER_OK.streamingData, hlsManifestUrl: 'https://manifest.googlevideo.com/x.m3u8' } };
+    const src = new InnertubeSource({
+      http: {
+        fetchImpl: mockPost((_u, body) => {
+          if (body.context.client.clientName !== 'IOS') return [200, { playabilityStatus: { status: 'UNPLAYABLE', reason: 'Indisponible' } }];
+          return [200, iosOnly];
+        }, calls),
+      },
+    });
+    const p = await src.getPlayback('aaaaaaaaaaa');
+    assert.deepEqual(calls.map((c) => c.body.context.client.clientName), ['VISIONOS', 'ANDROID_VR', 'ANDROID', 'IOS']);
+    assert.deepEqual(p.candidates.map((c) => c.kind), ['hls']);
+    assert.deepEqual(p.downloadable, []);
+    assert.deepEqual(p.audio, []);
+  });
+
+  it('ignore un client IOS sans HLS', async () => {
+    const src = new InnertubeSource({
+      http: {
+        fetchImpl: mockPost((_u, body) =>
+          body.context.client.clientName === 'IOS' ? [200, PLAYER_OK] : [200, { playabilityStatus: { status: 'UNPLAYABLE', reason: 'Vidéo indisponible' } }],
+        ),
+      },
+    });
+    await assert.rejects(src.getPlayback('aaaaaaaaaaa'), (e: unknown) => e instanceof AppError && /Vidéo indisponible/.test(e.message));
   });
 
   it('explique un blocage anti-robot', async () => {

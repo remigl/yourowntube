@@ -90,10 +90,9 @@ export class InnertubeSource implements VideoSource {
         status = data?.playabilityStatus?.status ?? '';
         reason = data?.playabilityStatus?.reason ?? reason;
         const sd = data?.streamingData;
+        const hasDirect = [...(sd?.formats ?? []), ...(sd?.adaptiveFormats ?? [])].some((f: J) => !!f?.url);
         const playable =
-          status === 'OK' &&
-          !!sd &&
-          (!!sd.hlsManifestUrl || [...(sd.formats ?? []), ...(sd.adaptiveFormats ?? [])].some((f: J) => !!f?.url));
+          status === 'OK' && !!sd && (!!sd.hlsManifestUrl || (hasDirect && !client.directUrlsNeedPoToken));
         if (playable) {
           const result = { data, client, at: Date.now() };
           this.players.set(id, result);
@@ -176,11 +175,13 @@ export class InnertubeSource implements VideoSource {
     const sd: J = data.streamingData ?? {};
     const headers = { 'User-Agent': client.userAgent };
     const origin = String(client.context.clientName);
+    // URL directes coupées en 403 sans PO token pour ce client : HLS seul.
+    const directOk = !client.directUrlsNeedPoToken;
     const live = !!data.videoDetails?.isLive;
     const duration = Number(data.videoDetails?.lengthSeconds ?? 0);
 
     const muxed = sortStreams(
-      ((sd.formats ?? []) as J[])
+      ((directOk ? (sd.formats ?? []) : []) as J[])
         .filter((f) => !!f.url)
         .map(
           (f): StreamOption => ({
@@ -198,7 +199,7 @@ export class InnertubeSource implements VideoSource {
         ),
     );
 
-    const manifest = live ? undefined : buildDashManifest((sd.adaptiveFormats ?? []) as AdaptiveFormat[], duration);
+    const manifest = live || !directOk ? undefined : buildDashManifest((sd.adaptiveFormats ?? []) as AdaptiveFormat[], duration);
     const dash: StreamOption | undefined = manifest
       ? { url: '', manifest, mimeType: 'application/dash+xml', quality: 'HD', muxed: true, kind: 'dash', headers, origin }
       : undefined;
@@ -210,7 +211,7 @@ export class InnertubeSource implements VideoSource {
     const candidates = (live ? [hls] : [dash, hls, ...muxed]).filter((s): s is StreamOption => !!s);
     if (candidates.length === 0) throw new AppError('no_stream', 'YouTube ne fournit aucun flux lisible pour cette vidéo.');
     const dims = largestFormat(data);
-    const audio = ((sd.adaptiveFormats ?? []) as J[])
+    const audio = ((directOk ? (sd.adaptiveFormats ?? []) : []) as J[])
       .filter((f) => !!f.url && /^audio\//.test(String(f.mimeType)))
       .filter((f) => f.audioTrack?.audioIsDefault !== false) // piste d'origine, pas un doublage
       .map(
