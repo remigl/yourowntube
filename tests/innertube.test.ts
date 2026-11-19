@@ -291,3 +291,35 @@ describe('Innertube — source', () => {
     assert.deepEqual(d.related?.map((r) => r.id), ['rrrrrrrrrrr']);
   });
 });
+
+describe('Innertube — diagnostic', () => {
+  it('teste chaque client et ses flux', async () => {
+    const { formatDiagnosis, extractVideoId } = await import('../src/core/sources/innertube');
+    const calls: Call[] = [];
+    const src = new InnertubeSource({
+      http: {
+        fetchImpl: mockPost((url, body, headers) => {
+          if (url.includes('googlevideo')) return [headers.Range?.startsWith('bytes=0-') ? 206 : 403, {}];
+          if (body.context.client.clientName === 'VISIONOS') {
+            const ok = { ...PLAYER_OK, streamingData: { ...PLAYER_OK.streamingData, formats: [{ ...PLAYER_OK.streamingData.formats[0], contentLength: '10000000' }] } };
+            return [200, ok];
+          }
+          return [200, { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm you’re not a bot' } }];
+        }, calls),
+      },
+    });
+    const d = await src.diagnose('aaaaaaaaaaa');
+    assert.equal(d.length, 4);
+    assert.equal(d[0].status, 'OK');
+    assert.deepEqual(d[0].probes.slice(0, 2), [
+      { label: 'MP4 muxé début', result: '206' },
+      { label: 'MP4 muxé à 60 %', result: '403' },
+    ]);
+    assert.equal(d[1].status, 'LOGIN_REQUIRED');
+    const text = formatDiagnosis('aaaaaaaaaaa', d);
+    assert.match(text, /VISIONOS 1\.02 : OK/);
+    assert.match(text, /MP4 muxé à 60 % : 403/);
+    assert.equal(extractVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1'), 'dQw4w9WgXcQ');
+    assert.equal(extractVideoId('https://youtu.be/dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+  });
+});

@@ -7,7 +7,8 @@ import type {
   VideoDetails,
   VideoSummary,
 } from '../../types';
-import { postJson, type HttpOptions } from '../http';
+import { describeError } from '../../errors';
+import { postJson, probeStatus, type HttpOptions } from '../http';
 import { heightFromLabel, sortStreams } from '../streams';
 import type { VideoSource } from '../types';
 import { PLAYER_CLIENTS, WEB, type InnertubeClient } from './clients';
@@ -235,10 +236,87 @@ export class InnertubeSource implements VideoSource {
     return collectVideos(data);
   }
 
+  /**
+   * Diagnostic de lecture : interroge chaque client « player » pour une vidéo
+   * et teste ses flux (début et milieu du fichier). Sert à comprendre un 403
+   * depuis le téléphone lui-même.
+   */
+  async diagnose(id: string): Promise<ClientDiagnosis[]> {
+    const out: ClientDiagnosis[] = [];
+    for (const client of PLAYER_CLIENTS) {
+      const name = `${client.context.clientName} ${client.context.clientVersion}`;
+      try {
+        const data = await this.call('player', client, { videoId: id, contentCheckOk: true, racyCheckOk: true });
+        const sd: J = data?.streamingData ?? {};
+        const direct = [...(sd.formats ?? []), ...(sd.adaptiveFormats ?? [])].filter((f: J) => !!f?.url) as J[];
+        const ciphered = [...(sd.formats ?? []), ...(sd.adaptiveFormats ?? [])].filter((f: J) => !f?.url && (f?.signatureCipher || f?.cipher)).length;
+        const headers = { 'User-Agent': client.userAgent };
+        const probes: { label: string; result: string }[] = [];
+        const muxed = (sd.formats ?? []).find((f: J) => !!f?.url) as J | undefined;
+        const audio = direct.find((f) => /^audio\/mp4/.test(String(f.mimeType)));
+        for (const [label, f] of [
+          ['MP4 muxé', muxed],
+          ['Audio m4a', audio],
+        ] as [string, J | undefined][]) {
+          if (!f) continue;
+          const len = Number(f.contentLength ?? 0);
+          probes.push({ label: `${label} début`, result: await probeStatus(f.url, { ...headers, Range: 'bytes=0-1023' }, this.http) });
+          if (len > 2_000_000) {
+            const at = Math.floor(len * 0.6);
+            probes.push({ label: `${label} à 60 %`, result: await probeStatus(f.url, { ...headers, Range: `bytes=${at}-${at + 1023}` }, this.http) });
+          }
+        }
+        if (sd.hlsManifestUrl) probes.push({ label: 'HLS manifeste', result: await probeStatus(sd.hlsManifestUrl, headers, this.http) });
+        out.push({
+          client: name,
+          status: data?.playabilityStatus?.status ?? '?',
+          reason: data?.playabilityStatus?.reason,
+          direct: direct.length,
+          ciphered,
+          hls: !!sd.hlsManifestUrl,
+          probes,
+        });
+      } catch (e) {
+        out.push({ client: name, status: 'ERREUR', reason: describeError(e), direct: 0, ciphered: 0, hls: false, probes: [] });
+      }
+    }
+    return out;
+  }
+
   async ping(): Promise<void> {
     const page = await this.search('test', { sort: 'relevance', uploadDate: 'any', duration: 'any' });
     if (page.items.length === 0) throw new AppError('parse', 'YouTube a répondu, mais sans résultats lisibles.');
   }
+}
+
+export interface ClientDiagnosis {
+  client: string;
+  status: string;
+  reason?: string;
+  /** Flux avec URL directe. */
+  direct: number;
+  /** Flux chiffrés (signature à déchiffrer), inutilisables ici. */
+  ciphered: number;
+  hls: boolean;
+  probes: { label: string; result: string }[];
+}
+
+/** Texte lisible du diagnostic, à copier ou capturer. */
+export function formatDiagnosis(videoId: string, list: ClientDiagnosis[]): string {
+  const lines = [`Vidéo ${videoId}`];
+  for (const d of list) {
+    lines.push('', `▸ ${d.client} : ${d.status}${d.reason ? ` — ${d.reason}` : ''}`);
+    lines.push(`  flux directs ${d.direct}, chiffrés ${d.ciphered}, HLS ${d.hls ? 'oui' : 'non'}`);
+    for (const p of d.probes) lines.push(`  ${p.label} : ${p.result}`);
+  }
+  return lines.join('\n');
+}
+
+/** Extrait l'identifiant d'une URL YouTube (watch, youtu.be, shorts, embed) ou le renvoie tel quel. */
+export function extractVideoId(input: string): string {
+  const s = input.trim();
+  const m = /(?:v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/.exec(s);
+  return m?.[1] ?? s;
 }
 
 /** Plus grande définition annoncée (détection des Shorts verticaux). */

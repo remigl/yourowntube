@@ -8,6 +8,8 @@ import { Chip } from '../src/components/Chip';
 import { ScreenHeader } from '../src/components/ScreenHeader';
 import { Button } from '../src/components/States';
 import { describeError } from '../src/core/errors';
+import { InnertubeSource } from '../src/core/sources';
+import { extractVideoId, formatDiagnosis } from '../src/core/sources/innertube';
 import { INSTANCE_HINTS, SOURCE_LABELS, type AppSettings } from '../src/core/settings';
 import type { SourceKind } from '../src/core/types';
 import { clearSearches, clearWatchHistory, pruneOrphanVideos } from '../src/db/repo';
@@ -117,6 +119,8 @@ export default function SettingsScreen() {
             {!!sourceError && test.status === 'idle' && <Text style={[type.meta, { color: colors.accent }]}>{sourceError.message}</Text>}
           </Section>
 
+          {settings.source === 'device' && source instanceof InnertubeSource && <Diagnostic source={source} />}
+
           <Section title="Lecture">
             <Toggle label="Lecture en arrière-plan" hint="Le son continue écran verrouillé ou dans une autre app, avec contrôles dans les notifications." value={settings.backgroundPlayback} onChange={(v) => set('backgroundPlayback', v)} />
             <Toggle label="Reprendre là où je me suis arrêté" value={settings.resumePlayback} onChange={(v) => set('resumePlayback', v)} />
@@ -178,6 +182,54 @@ export default function SettingsScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+/** Diagnostic de lecture « Sur l'appareil » : résultat à capturer ou copier. */
+function Diagnostic({ source }: { source: InnertubeSource }) {
+  const [input, setInput] = useState('dQw4w9WgXcQ');
+  const [running, setRunning] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+  const run = async () => {
+    const id = extractVideoId(input);
+    setRunning(true);
+    setReport(null);
+    try {
+      setReport(formatDiagnosis(id, await source.diagnose(id)));
+    } catch (e) {
+      setReport(describeError(e));
+    } finally {
+      setRunning(false);
+    }
+  };
+  return (
+    <Section title="Diagnostic de lecture">
+      <Text style={type.meta}>
+        En cas d’erreur 403, lancez le test sur la vidéo concernée (lien ou identifiant), puis faites une capture du résultat.
+      </Text>
+      <View style={styles.inputWrap}>
+        <TextInput
+          style={styles.input}
+          value={input}
+          onChangeText={setInput}
+          placeholder="Lien ou identifiant de la vidéo"
+          placeholderTextColor={colors.textFaint}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardAppearance="dark"
+          selectionColor={colors.accent}
+        />
+      </View>
+      <View style={styles.testRow}>
+        <Button label="Lancer le diagnostic" icon="medkit-outline" variant="ghost" onPress={() => void run()} disabled={running} />
+        {running && <ActivityIndicator color={colors.accent} />}
+      </View>
+      {!!report && (
+        <Text selectable style={[type.mono, styles.report]}>
+          {report}
+        </Text>
+      )}
+    </Section>
   );
 }
 
@@ -256,4 +308,5 @@ const styles = StyleSheet.create({
   toggle: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   buttons: { gap: space.sm, alignItems: 'flex-start' },
   version: { textAlign: 'center', marginTop: space.xl },
+  report: { backgroundColor: colors.bg, borderRadius: radius.sm, padding: space.md, fontSize: 11.5, lineHeight: 16 },
 });

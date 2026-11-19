@@ -92,6 +92,24 @@ async function requestJson<T>(
   }
 }
 
+/**
+ * Teste une URL de flux sans la télécharger : GET d'une petite plage d'octets.
+ * Renvoie le code HTTP (206 = OK) ou un court message d'erreur réseau.
+ */
+export async function probeStatus(url: string, headers: Record<string, string>, opts: HttpOptions = {}): Promise<string> {
+  const f: FetchLike = opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 12_000);
+  try {
+    const res = await f(url, { signal: controller.signal, headers });
+    return String(res.status);
+  } catch {
+    return controller.signal.aborted ? 'délai dépassé' : 'erreur réseau';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Construit une URL avec paramètres de requête (valeurs vides ignorées). */
 export function buildUrl(base: string, path: string, params: Record<string, string | number | undefined> = {}): string {
   const root = base.replace(/\/+$/, '');
