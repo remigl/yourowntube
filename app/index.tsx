@@ -238,6 +238,7 @@ function Results({
 
   if (search.error && search.items.length === 0) {
     const offline = search.error.code === 'offline';
+    const toSettings = search.error.code === 'blocked' || search.error.code === 'not_configured' || search.error.code === 'quota';
     return (
       <View style={{ flex: 1 }}>
         {header}
@@ -246,9 +247,15 @@ function Results({
           tone={offline ? 'neutral' : 'danger'}
           title={offline ? 'Hors ligne' : 'La recherche a échoué'}
           message={search.error.message}
-          actionLabel={offline ? 'Mes vidéos enregistrées' : 'Réessayer'}
-          onAction={offline ? () => router.push('/library') : search.refresh}
-        />
+          actionLabel={offline ? 'Mes vidéos enregistrées' : toSettings ? 'Changer d’instance' : 'Réessayer'}
+          onAction={offline ? () => router.push('/library') : toSettings ? () => router.push('/settings') : search.refresh}
+        >
+          {toSettings && (
+            <Pressable onPress={search.refresh} hitSlop={hitSlop}>
+              <Text style={[type.meta, { color: colors.textDim, marginTop: space.sm }]}>Réessayer</Text>
+            </Pressable>
+          )}
+        </MessageState>
       </View>
     );
   }

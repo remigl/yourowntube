@@ -198,6 +198,10 @@ describe('source Invidious', () => {
     assert.equal(d.related?.[0].id, 'bbbbbbbbbbb');
     assert.deepEqual(d.keywords, ['vélo', 'voyage']);
   });
+  it('explique un refus de l’instance (403)', async () => {
+    const blocked = new InvidiousSource('inv.test', { fetchImpl: mockFetch([[/search/, 'Forbidden', 403]]) });
+    await assert.rejects(blocked.search('x', DEFAULT_FILTERS), (e: unknown) => e instanceof AppError && e.code === 'blocked' && /anti-robots/.test(e.message));
+  });
   it('signale une instance manquante', () => {
     assert.throws(() => new InvidiousSource(''), (e: unknown) => e instanceof AppError && e.code === 'not_configured');
   });

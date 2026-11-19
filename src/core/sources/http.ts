@@ -42,6 +42,23 @@ export async function getJson<T = unknown>(url: string, opts: HttpOptions = {}):
       throw new AppError('not_configured', 'Clé API YouTube invalide.', 400);
     }
     if (res.status === 404) throw new AppError('not_found', 'Contenu introuvable.', 404);
+    if (res.status === 403 || res.status === 401) {
+      if (/googleapis\.com/.test(url)) {
+        throw new AppError(
+          'not_configured',
+          'Clé API YouTube refusée : vérifiez que l’API YouTube Data v3 est activée et que la clé n’est pas restreinte.',
+          res.status,
+        );
+      }
+      throw new AppError(
+        'blocked',
+        'Cette instance refuse l’accès aux applications (protection anti-robots ou API désactivée). Essayez une autre instance ou Piped.',
+        res.status,
+      );
+    }
+    if (res.status === 429) {
+      throw new AppError('blocked', 'Trop de requêtes : l’instance limite l’accès. Réessayez plus tard ou changez d’instance.', 429);
+    }
     throw new AppError('http', `Le serveur a répondu avec une erreur (${res.status}).`, res.status);
   }
   try {

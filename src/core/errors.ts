@@ -5,6 +5,7 @@ export type AppErrorCode =
   | 'http'
   | 'not_configured'
   | 'quota'
+  | 'blocked'
   | 'not_found'
   | 'blocked_short'
   | 'no_stream'
