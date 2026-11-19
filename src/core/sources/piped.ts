@@ -42,6 +42,7 @@ interface PipedStreams {
   uploaderUrl?: string;
   thumbnailUrl?: string;
   hls?: string;
+  dash?: string | null;
   duration?: number;
   views?: number;
   livestream?: boolean;
@@ -115,15 +116,16 @@ export class PipedSource implements VideoSource {
     );
     const best = s.videoStreams?.slice().sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0];
     const dims = { width: best?.width, height: best?.height };
-    if (s.hls) {
-      return {
-        playback: { url: s.hls, mimeType: 'application/x-mpegURL', quality: 'Auto', muxed: true, kind: 'hls' },
-        downloadable,
-        ...dims,
-      };
-    }
-    if (!downloadable[0]) throw new AppError('no_stream', 'Aucun flux lisible pour cette vidéo sur cette instance.');
-    return { playback: downloadable[0], downloadable, ...dims };
+    const hls: StreamOption | undefined = s.hls
+      ? { url: s.hls, mimeType: 'application/x-mpegURL', quality: 'Auto', muxed: true, kind: 'hls' }
+      : undefined;
+    const dash: StreamOption | undefined = s.dash
+      ? { url: s.dash, mimeType: 'application/dash+xml', quality: 'Auto', muxed: true, kind: 'dash' }
+      : undefined;
+    // Direct : HLS seul. Sinon : fichier muxé (le plus simple à lire), puis HLS, puis DASH.
+    const candidates = (s.livestream ? [hls] : [...downloadable, hls, dash]).filter((x): x is StreamOption => !!x);
+    if (candidates.length === 0) throw new AppError('no_stream', 'Aucun flux lisible pour cette vidéo sur cette instance.');
+    return { playback: candidates[0], candidates, downloadable, ...dims };
   }
 
   async getChannelVideos(channelId: string): Promise<VideoSummary[]> {

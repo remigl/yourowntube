@@ -192,6 +192,8 @@ describe('source Invidious', () => {
     assert.ok(p.playback.url.startsWith(`${base}/latest_version`));
     assert.deepEqual(p.downloadable.map((d) => d.height), [720, 360]);
     assert.equal(p.height, 1080);
+    assert.deepEqual(p.candidates.map((c) => c.kind), ['progressive', 'progressive', 'dash']);
+    assert.equal(p.candidates[2].url, `${base}/api/manifest/dash/id/aaaaaaaaaaa?local=true`);
   });
   it('fournit les vidéos liées dans les détails', async () => {
     const d = await src.getDetails('aaaaaaaaaaa');
@@ -246,9 +248,10 @@ describe('source Piped', () => {
     assert.equal(page.items[0].channelId, 'UCc');
     assert.equal(page.nextPage, 'TOKEN');
   });
-  it('lit en HLS et télécharge le flux muxé', async () => {
+  it('essaie le fichier muxé, puis HLS ; télécharge le flux muxé', async () => {
     const p = await src.getPlayback('ccccccccccc');
-    assert.equal(p.playback.kind, 'hls');
+    assert.equal(p.playback.kind, 'progressive');
+    assert.deepEqual(p.candidates.map((c) => c.kind), ['progressive', 'hls']);
     assert.deepEqual(p.downloadable.map((d) => d.url), ['https://p/2']);
     assert.equal(p.width, 1920);
   });

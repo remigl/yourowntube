@@ -29,7 +29,7 @@ const KEEP_AWAKE_TAG = 'yourowntube-player';
 
 export interface VideoPlayerProps {
   uri: string;
-  contentType?: 'hls' | 'progressive';
+  contentType?: 'hls' | 'progressive' | 'dash';
   title: string;
   channel: string;
   artwork?: string;
@@ -45,6 +45,13 @@ export interface VideoPlayerProps {
   onProgress: (positionSec: number, durationSec: number | null) => void;
   onRetry: () => void;
   onBack: () => void;
+  /**
+   * Appelé quand le flux échoue. Renvoie true si le parent passe à un autre
+   * flux (le lecteur affiche alors un chargement au lieu de l'erreur).
+   */
+  onStreamError?: (detail?: string) => boolean;
+  /** Message d'erreur affiché quand plus aucun flux n'est disponible. */
+  errorText?: string;
 }
 
 /**
@@ -53,7 +60,7 @@ export interface VideoPlayerProps {
  * volume, plein écran, reprise, lecture en arrière-plan.
  */
 export function VideoPlayer(props: VideoPlayerProps) {
-  const { uri, contentType, title, channel, artwork, startAt, isLocal, backgroundPlayback, aspect, fullscreen, onFullscreenChange, onProgress, onRetry, onBack } = props;
+  const { uri, contentType, title, channel, artwork, startAt, isLocal, backgroundPlayback, aspect, fullscreen, onFullscreenChange, onProgress, onRetry, onBack, onStreamError, errorText } = props;
   const insets = useSafeAreaInsets();
 
   // Source figée au montage : expo-video recrée le lecteur si l'objet source
@@ -89,6 +96,15 @@ export function VideoPlayer(props: VideoPlayerProps) {
   const resumed = useRef(false);
   const progressCb = useRef(onProgress);
   progressCb.current = onProgress;
+
+  /* ── Échec du flux : le parent peut basculer sur le flux suivant ── */
+  const [errorHandled, setErrorHandled] = useState(false);
+  const streamErrorCb = useRef(onStreamError);
+  streamErrorCb.current = onStreamError;
+  useEffect(() => {
+    if (status !== 'error') return;
+    setErrorHandled(streamErrorCb.current?.(error?.message) ?? false);
+  }, [status, error]);
 
   /* ── Reprise à la position enregistrée, une fois la vidéo prête ── */
   useEffect(() => {
@@ -284,18 +300,23 @@ export function VideoPlayer(props: VideoPlayerProps) {
         </View>
       )}
 
-      {loading && (
+      {(loading || (status === 'error' && errorHandled)) && (
         <View pointerEvents="none" style={styles.center}>
           <ActivityIndicator size="large" color="#fff" />
         </View>
       )}
 
-      {status === 'error' && (
+      {status === 'error' && !errorHandled && (
         <View style={[styles.center, styles.errorBox]}>
           <Ionicons name="alert-circle-outline" size={30} color={colors.danger} />
           <Text style={styles.errorText}>
-            {isLocal ? 'Le fichier local est illisible.' : 'Lecture impossible. Le flux a peut-être expiré.'}
+            {isLocal ? 'Le fichier local est illisible.' : (errorText ?? 'Lecture impossible.')}
           </Text>
+          {!!error?.message && (
+            <Text style={styles.errorDetail} numberOfLines={3}>
+              {error.message}
+            </Text>
+          )}
           <Pressable style={styles.retry} onPress={onRetry}>
             <Ionicons name="refresh" size={15} color="#fff" />
             <Text style={styles.retryText}>Réessayer</Text>
@@ -480,6 +501,7 @@ const styles = StyleSheet.create({
   },
   errorBox: { backgroundColor: 'rgba(0,0,0,0.7)', gap: space.sm, paddingHorizontal: space.xl },
   errorText: { color: '#fff', textAlign: 'center', fontSize: 14 },
+  errorDetail: { color: 'rgba(255,255,255,0.55)', textAlign: 'center', fontSize: 11.5 },
   retry: {
     flexDirection: 'row',
     alignItems: 'center',

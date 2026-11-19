@@ -51,8 +51,13 @@ export interface StreamOption {
 }
 
 export interface PlaybackInfo {
-  /** Flux à utiliser pour la lecture en streaming. */
+  /** Flux à utiliser pour la lecture en streaming (= candidates[0]). */
   playback: StreamOption;
+  /**
+   * Tous les flux lisibles, du plus fiable au moins fiable. Le lecteur passe
+   * au suivant si l'un échoue (instance qui sert mal un format, flux bloqué…).
+   */
+  candidates: StreamOption[];
   /** Flux muxés téléchargeables en un seul fichier, du meilleur au moins bon. */
   downloadable: StreamOption[];
   width?: number;

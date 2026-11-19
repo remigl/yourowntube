@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DownloadButton } from '../../src/components/DownloadButton';
@@ -24,9 +24,17 @@ import { colors, hitSlop, radius, space, type } from '../../src/theme';
 
 type PlayState =
   | { kind: 'loading' }
-  | { kind: 'ready'; uri: string; contentType: 'hls' | 'progressive'; isLocal: boolean; startAt: number; aspect?: number }
+  | { kind: 'ready'; streams: PlayStream[]; index: number; isLocal: boolean; startAt: number; aspect?: number }
   | { kind: 'error'; code: AppErrorCode; message: string }
   | { kind: 'short' };
+
+interface PlayStream {
+  uri: string;
+  contentType: 'hls' | 'progressive' | 'dash';
+  label: string;
+}
+
+const KIND_LABEL = { progressive: 'MP4', hls: 'HLS', dash: 'DASH' } as const;
 
 interface SimilarState {
   loading: boolean;
@@ -86,7 +94,16 @@ function WatchContent({ id }: { id: string }) {
           if (!summaryRef.current) setSummary(local.video);
           const w = local.video.width;
           const h = local.video.height;
-          if (alive) setPlay({ kind: 'ready', uri: local.fileUri, contentType: 'progressive', isLocal: true, startAt, aspect: w && h ? w / h : undefined });
+          if (alive) {
+            setPlay({
+              kind: 'ready',
+              streams: [{ uri: local.fileUri, contentType: 'progressive', label: 'local' }],
+              index: 0,
+              isLocal: true,
+              startAt,
+              aspect: w && h ? w / h : undefined,
+            });
+          }
           return;
         }
         if (origin === 'unavailable_offline') {
@@ -105,10 +122,15 @@ function WatchContent({ id }: { id: string }) {
           setPlay({ kind: 'short' });
           return;
         }
+        // iOS (AVPlayer) ne lit pas le DASH.
+        const streams: PlayStream[] = info.candidates
+          .filter((c) => c.kind !== 'dash' || Platform.OS === 'android')
+          .map((c) => ({ uri: c.url, contentType: c.kind, label: c.kind === 'progressive' ? `${KIND_LABEL[c.kind]} ${c.quality}` : KIND_LABEL[c.kind] }));
+        if (streams.length === 0) throw new AppError('no_stream', 'Aucun flux lisible sur cet appareil pour cette vidéo.');
         setPlay({
           kind: 'ready',
-          uri: info.playback.url,
-          contentType: info.playback.kind === 'hls' ? 'hls' : 'progressive',
+          streams,
+          index: 0,
           isLocal: false,
           startAt,
           aspect: info.width && info.height ? info.width / info.height : undefined,
@@ -168,8 +190,21 @@ function WatchContent({ id }: { id: string }) {
     };
   }, [id, source, online, shortsPolicy]);
 
+  const lastPos = useRef(0);
+
+  /** Flux en échec : on passe au suivant en gardant la position. */
+  const playRef = useRef(play);
+  playRef.current = play;
+  const onStreamError = useCallback((): boolean => {
+    const p = playRef.current;
+    if (p.kind !== 'ready' || p.index + 1 >= p.streams.length) return false;
+    setPlay({ ...p, index: p.index + 1, startAt: lastPos.current > 0 ? lastPos.current : p.startAt });
+    return true;
+  }, []);
+
   const onProgress = useCallback(
     (pos: number, dur: number | null) => {
+      lastPos.current = pos;
       if (!settings.saveWatchHistory) return;
       const s = summaryRef.current;
       // L'historique a besoin des métadonnées : on les assure avant d'écrire la progression.
@@ -189,9 +224,15 @@ function WatchContent({ id }: { id: string }) {
 
       {play.kind === 'ready' ? (
         <VideoPlayer
-          key={`${id}-${attempt}`}
-          uri={play.uri}
-          contentType={play.contentType}
+          key={`${id}-${attempt}-${play.index}`}
+          uri={play.streams[play.index].uri}
+          contentType={play.streams[play.index].contentType}
+          onStreamError={onStreamError}
+          errorText={
+            play.streams.length > 1
+              ? `Lecture impossible : aucun des ${play.streams.length} flux proposés (${play.streams.map((s) => s.label).join(', ')}) n’a pu être lu. Essayez une autre instance.`
+              : 'Lecture impossible : le flux proposé par l’instance n’a pas pu être lu. Essayez une autre instance.'
+          }
           title={title}
           channel={channel}
           artwork={summary?.thumbnail}

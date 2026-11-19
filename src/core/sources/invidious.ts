@@ -49,6 +49,7 @@ interface InvVideo extends InvVideoItem {
   adaptiveFormats?: InvFormat[];
   recommendedVideos?: InvVideoItem[];
   hlsUrl?: string;
+  dashUrl?: string;
 }
 
 const SORT: Record<SearchFilters['sort'], string> = {
@@ -103,25 +104,32 @@ export class InvidiousSource implements VideoSource {
         .map((f) => this.toStream(f, true))
         .filter((s): s is StreamOption => !!s),
     );
+    const hls: StreamOption | undefined = v.hlsUrl
+      ? { url: withLocal(absolutize(this.base, v.hlsUrl)!), mimeType: 'application/x-mpegURL', quality: 'Auto', muxed: true, kind: 'hls' }
+      : undefined;
+    // DASH : pistes audio et vidéo séparées (HD), relayées par l'instance. Android uniquement.
+    const dash: StreamOption | undefined =
+      !v.liveNow && (v.adaptiveFormats?.length ?? 0) > 0
+        ? {
+            url: withLocal(absolutize(this.base, v.dashUrl ?? `/api/manifest/dash/id/${encodeURIComponent(id)}`)!),
+            mimeType: 'application/dash+xml',
+            quality: 'Auto',
+            muxed: true,
+            kind: 'dash',
+          }
+        : undefined;
+    const candidates = v.liveNow
+      ? [hls, ...muxed].filter((s): s is StreamOption => !!s)
+      : [...muxed, dash, hls].filter((s): s is StreamOption => !!s);
+    if (candidates.length === 0) throw new AppError('no_stream', 'Aucun flux lisible pour cette vidéo sur cette instance.');
     const best = muxed[0];
-    if (v.hlsUrl && (!best || v.liveNow)) {
-      const hls: StreamOption = {
-        url: absolutize(this.base, v.hlsUrl)!,
-        mimeType: 'application/x-mpegURL',
-        quality: 'Auto',
-        muxed: true,
-        kind: 'hls',
-      };
-      return { playback: hls, downloadable: muxed };
-    }
-    if (!best) throw new AppError('no_stream', 'Aucun flux lisible pour cette vidéo sur cette instance.');
     // Dimensions de la vidéo (pour la détection des Shorts verticaux) via le
     // meilleur flux adaptatif, plus fiable que les flux muxés limités en qualité.
     const dims = (v.adaptiveFormats ?? [])
       .map((f) => parseSize(f.size))
       .filter((d): d is { width: number; height: number } => !!d)
-      .sort((a, b) => b.height - a.height)[0] ?? (best.width && best.height ? { width: best.width, height: best.height } : undefined);
-    return { playback: best, downloadable: muxed, width: dims?.width, height: dims?.height };
+      .sort((a, b) => b.height - a.height)[0] ?? (best?.width && best.height ? { width: best.width, height: best.height } : undefined);
+    return { playback: candidates[0], candidates, downloadable: muxed, width: dims?.width, height: dims?.height };
   }
 
   async getChannelVideos(channelId: string): Promise<VideoSummary[]> {
@@ -177,6 +185,11 @@ export class InvidiousSource implements VideoSource {
       kind: 'progressive',
     };
   }
+}
+
+/** Force le relais par l'instance (les flux directs sont liés à son adresse IP). */
+function withLocal(url: string): string {
+  return /[?&]local=/.test(url) ? url : `${url}${url.includes('?') ? '&' : '?'}local=true`;
 }
 
 function parseSize(size: string | undefined): { width: number; height: number } | undefined {
