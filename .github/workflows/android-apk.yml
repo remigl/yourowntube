@@ -2,8 +2,11 @@ name: APK Android
 
 # Construit un APK installable directement sur le téléphone, sans ordinateur.
 # Onglet Actions → « APK Android » → dernière exécution → artefact « yourowntube-apk ».
+# Publier une release GitHub (tag v*) y joint automatiquement l'APK.
 on:
   workflow_dispatch:
+  release:
+    types: [published]
   push:
     branches: [main]
     tags: ['v*']
@@ -53,8 +56,8 @@ jobs:
           path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
 
-      - name: Publier l'APK sur la release (tags v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Joindre l'APK à la release
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: android/app/build/outputs/apk/release/app-release.apk
