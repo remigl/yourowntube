@@ -247,7 +247,7 @@ function Results({
           tone={offline ? 'neutral' : 'danger'}
           title={offline ? 'Hors ligne' : 'La recherche a échoué'}
           message={search.error.message}
-          actionLabel={offline ? 'Mes vidéos enregistrées' : toSettings ? 'Changer d’instance' : 'Réessayer'}
+          actionLabel={offline ? 'Mes vidéos enregistrées' : toSettings ? 'Changer de source' : 'Réessayer'}
           onAction={offline ? () => router.push('/library') : toSettings ? () => router.push('/settings') : search.refresh}
         >
           {toSettings && (

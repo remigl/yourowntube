@@ -1,6 +1,9 @@
 import { AppError } from '../errors';
 
-export type FetchLike = (input: string, init?: { signal?: AbortSignal; headers?: Record<string, string> }) => Promise<{
+export type FetchLike = (
+  input: string,
+  init?: { signal?: AbortSignal; headers?: Record<string, string>; method?: string; body?: string },
+) => Promise<{
   ok: boolean;
   status: number;
   json(): Promise<unknown>;
@@ -15,13 +18,31 @@ export interface HttpOptions {
 const DEFAULT_TIMEOUT = 15_000;
 
 /** GET JSON avec délai d'expiration et erreurs typées. */
-export async function getJson<T = unknown>(url: string, opts: HttpOptions = {}): Promise<T> {
+export function getJson<T = unknown>(url: string, opts: HttpOptions = {}): Promise<T> {
+  return requestJson<T>(url, {}, opts);
+}
+
+/** POST d'un corps JSON, réponse JSON. */
+export function postJson<T = unknown>(
+  url: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+  opts: HttpOptions = {},
+): Promise<T> {
+  return requestJson<T>(url, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', ...headers } }, opts);
+}
+
+async function requestJson<T>(
+  url: string,
+  init: { method?: string; body?: string; headers?: Record<string, string> },
+  opts: HttpOptions,
+): Promise<T> {
   const f: FetchLike = opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT);
   let res: Awaited<ReturnType<FetchLike>>;
   try {
-    res = await f(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+    res = await f(url, { ...init, signal: controller.signal, headers: { Accept: 'application/json', ...init.headers } });
   } catch (e) {
     if (controller.signal.aborted) throw new AppError('timeout', 'Le serveur met trop de temps à répondre.');
     throw new AppError('network', 'Impossible de joindre le serveur. Vérifiez votre connexion ou l’instance configurée.');
@@ -43,6 +64,9 @@ export async function getJson<T = unknown>(url: string, opts: HttpOptions = {}):
     }
     if (res.status === 404) throw new AppError('not_found', 'Contenu introuvable.', 404);
     if (res.status === 403 || res.status === 401) {
+      if (/youtube\.com\/youtubei/.test(url)) {
+        throw new AppError('blocked', 'YouTube refuse la requête depuis ce réseau. Réessayez plus tard ou depuis une autre connexion.', res.status);
+      }
       if (/googleapis\.com/.test(url)) {
         throw new AppError(
           'not_configured',

@@ -19,6 +19,7 @@ import { getCachedVideo, getProgress, listDownloads, recordProgress, upsertVideo
 import { openVideo } from '../../src/lib/navigation';
 import { recallVideo } from '../../src/lib/videoCache';
 import { downloads } from '../../src/services/downloads';
+import { writeDashManifest } from '../../src/services/files';
 import { useApp } from '../../src/state/AppContext';
 import { colors, hitSlop, radius, space, type } from '../../src/theme';
 
@@ -30,6 +31,7 @@ type PlayState =
 
 interface PlayStream {
   uri: string;
+  headers?: Record<string, string>;
   contentType: 'hls' | 'progressive' | 'dash';
   label: string;
 }
@@ -123,9 +125,15 @@ function WatchContent({ id }: { id: string }) {
           return;
         }
         // iOS (AVPlayer) ne lit pas le DASH.
-        const streams: PlayStream[] = info.candidates
-          .filter((c) => c.kind !== 'dash' || Platform.OS === 'android')
-          .map((c) => ({ uri: c.url, contentType: c.kind, label: c.kind === 'progressive' ? `${KIND_LABEL[c.kind]} ${c.quality}` : KIND_LABEL[c.kind] }));
+        const usable = info.candidates.filter((c) => c.kind !== 'dash' || Platform.OS === 'android');
+        const streams: PlayStream[] = [];
+        for (const c of usable) {
+          // Manifeste DASH généré sur le téléphone : on l'écrit dans un fichier lisible par le lecteur.
+          const uri = c.manifest ? await writeDashManifest(id, c.manifest).catch(() => '') : c.url;
+          if (!uri) continue;
+          const label = c.kind === 'progressive' ? `${KIND_LABEL[c.kind]} ${c.quality}` : `${KIND_LABEL[c.kind]}${c.quality === 'HD' ? ' HD' : ''}`;
+          streams.push({ uri, contentType: c.kind, headers: c.headers, label });
+        }
         if (streams.length === 0) throw new AppError('no_stream', 'Aucun flux lisible sur cet appareil pour cette vidéo.');
         setPlay({
           kind: 'ready',
@@ -227,11 +235,12 @@ function WatchContent({ id }: { id: string }) {
           key={`${id}-${attempt}-${play.index}`}
           uri={play.streams[play.index].uri}
           contentType={play.streams[play.index].contentType}
+          headers={play.streams[play.index].headers}
           onStreamError={onStreamError}
           errorText={
             play.streams.length > 1
-              ? `Lecture impossible : aucun des ${play.streams.length} flux proposés (${play.streams.map((s) => s.label).join(', ')}) n’a pu être lu. Essayez une autre instance.`
-              : 'Lecture impossible : le flux proposé par l’instance n’a pas pu être lu. Essayez une autre instance.'
+              ? `Lecture impossible : aucun des ${play.streams.length} flux proposés (${play.streams.map((s) => s.label).join(', ')}) n’a pu être lu.${source?.kind === 'device' ? '' : ' Essayez une autre instance.'}`
+              : source?.kind === 'device' ? 'Lecture impossible : le flux proposé par YouTube n’a pas pu être lu.' : 'Lecture impossible : le flux proposé par l’instance n’a pas pu être lu. Essayez une autre instance.'
           }
           title={title}
           channel={channel}

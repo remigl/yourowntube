@@ -39,6 +39,7 @@ export const INSTANCE_HINTS = {
 
 export const SOURCE_LABELS: Record<SourceKind, string> = {
   demo: 'Démonstration',
+  device: 'Sur l’appareil (comme Grayjay)',
   invidious: 'Invidious',
   piped: 'Piped',
   youtube: 'YouTube Data API v3',

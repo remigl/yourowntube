@@ -8,6 +8,16 @@ import * as FileSystem from 'expo-file-system/legacy';
 const ROOT = `${FileSystem.documentDirectory ?? ''}yourowntube/`;
 export const VIDEOS_DIR = `${ROOT}videos/`;
 export const THUMBS_DIR = `${ROOT}thumbs/`;
+const DASH_DIR = `${FileSystem.cacheDirectory ?? ''}dash/`;
+
+/** Écrit un manifeste DASH généré localement et renvoie son URI file://. */
+export async function writeDashManifest(videoId: string, xml: string): Promise<string> {
+  const info = await FileSystem.getInfoAsync(DASH_DIR);
+  if (!info.exists) await FileSystem.makeDirectoryAsync(DASH_DIR, { intermediates: true });
+  const uri = `${DASH_DIR}${safeName(videoId)}.mpd`;
+  await FileSystem.writeAsStringAsync(uri, xml);
+  return uri;
+}
 
 let ensured: Promise<void> | null = null;
 

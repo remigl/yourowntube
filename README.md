@@ -41,9 +41,12 @@ Réglages → **Source des vidéos**. L'application démarre en **mode démonstr
 | Source | Recherche | Lecture | Téléchargement | Similaires |
 |---|---|---|---|---|
 | Démonstration | ✓ (locale) | ✓ | ✓ | ✓ |
-| **Invidious** (recommandé) | ✓ tri et filtres côté serveur | ✓ via l'instance (`local=true`) | ✓ fichier muxé | ✓ natives + chaîne + sujet |
+| **Sur l'appareil** (recommandé) | ✓ tri et filtres côté YouTube | ✓ HD (DASH) sur Android, sinon HLS / MP4 | ✓ fichier muxé | ✓ natives + chaîne + sujet |
+| Invidious | ✓ tri et filtres côté serveur | ✓ via l'instance (`local=true`) | ✓ fichier muxé | ✓ natives + chaîne + sujet |
 | Piped | ✓ tri et filtres côté client | ✓ HLS adaptatif | ✓ si flux muxé proposé | ✓ natives + chaîne + sujet |
 | YouTube Data API v3 | ✓ (clé API) | via Invidious ou Piped | via Invidious ou Piped | chaîne + sujet |
+
+**Sur l'appareil** fonctionne comme Grayjay ou NewPipe : le téléphone interroge directement l'API interne de YouTube (Innertube), sans instance, sans clé et sans serveur intermédiaire. Les URL de flux sont émises pour l'adresse IP du téléphone. Code écrit pour YourOwnTube (`src/core/sources/innertube/`), sans reprise du code de Grayjay. Si YouTube change ses protections et que la lecture casse, mettre à jour les identités de client dans `innertube/clients.ts`. Si YouTube demande une vérification anti-robot, l'app l'affiche : rien n'est fait pour la contourner.
 
 L'API officielle YouTube Data v3 ne fournit **aucun flux vidéo** (et plus de « vidéos liées » depuis 2023) : elle sert à la recherche et aux métadonnées, la lecture passe par une instance Invidious ou Piped. La clé API est rangée dans le trousseau sécurisé du système (expo-secure-store), jamais dans SQLite. Chaque recherche coûte 100 unités de quota (10 000/jour par défaut).
 
@@ -90,6 +93,7 @@ tests/                    Tests node:test (npm test)
 
 ## Limites connues
 
+- Avec la source « Sur l'appareil », la HD passe par un manifeste DASH généré sur le téléphone (Android uniquement). Les autres sources et iOS se rabattent sur HLS ou sur le fichier muxé.
 - YouTube ne propose presque plus de flux **muxés** (audio + vidéo dans un seul fichier) au-delà de 360p. Les téléchargements prennent la meilleure qualité muxée disponible, souvent 360p ; le streaming, lui, peut être en HD (HLS via Piped). Télécharger en HD demanderait de fusionner pistes audio et vidéo sur le téléphone (ffmpeg), non inclus.
 - Les URL de flux expirent après quelques heures : elles sont redemandées à chaque lecture et le bouton « Réessayer » du lecteur en récupère de nouvelles.
 - Télécharger des vidéos YouTube peut contrevenir aux conditions d'utilisation de YouTube. Réservez cet usage à des contenus que vous avez le droit d'enregistrer, à titre personnel.

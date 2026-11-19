@@ -4,7 +4,7 @@
  * tout le dossier `src/core` est testable sous Node.
  */
 
-export type SourceKind = 'demo' | 'invidious' | 'piped' | 'youtube';
+export type SourceKind = 'demo' | 'device' | 'invidious' | 'piped' | 'youtube';
 
 export interface VideoSummary {
   id: string;
@@ -48,6 +48,10 @@ export interface StreamOption {
   /** Taille annoncée par la source, en octets. */
   sizeBytes?: number;
   kind: 'progressive' | 'hls' | 'dash';
+  /** En-têtes HTTP à envoyer pour lire / télécharger ce flux (User-Agent…). */
+  headers?: Record<string, string>;
+  /** Manifeste DASH généré localement (à écrire dans un fichier avant lecture). */
+  manifest?: string;
 }
 
 export interface PlaybackInfo {

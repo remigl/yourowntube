@@ -16,6 +16,7 @@ import { colors, radius, space, type } from '../src/theme';
 
 const SOURCE_HINTS: Record<SourceKind, string> = {
   demo: 'Vidéos libres d’exemple, sans configuration. Idéal pour essayer l’application.',
+  device: 'Recommandé. Le téléphone parle directement à YouTube, sans serveur intermédiaire ni clé. HD sur Android.',
   invidious: 'Recherche, lecture, téléchargement et recommandations via une instance Invidious.',
   piped: 'Recherche, lecture (HLS) et téléchargement via une instance Piped.',
   youtube: 'Recherche via l’API officielle (clé requise). Lecture via Invidious ou Piped.',

@@ -2,13 +2,14 @@ import { AppError } from '../errors';
 import type { AppSettings } from '../settings';
 import { DemoSource } from './demo';
 import type { HttpOptions } from './http';
+import { InnertubeSource } from './innertube';
 import { InvidiousSource } from './invidious';
 import { PipedSource } from './piped';
 import type { StreamProvider, VideoSource } from './types';
 import { YouTubeDataSource } from './youtube';
 
 export type { VideoSource, StreamProvider } from './types';
-export { DemoSource, InvidiousSource, PipedSource, YouTubeDataSource };
+export { DemoSource, InnertubeSource, InvidiousSource, PipedSource, YouTubeDataSource };
 
 /**
  * Construit la source active à partir des réglages. Lève `not_configured`
@@ -18,6 +19,8 @@ export function createSource(s: AppSettings, http: HttpOptions = {}): VideoSourc
   switch (s.source) {
     case 'demo':
       return new DemoSource();
+    case 'device':
+      return new InnertubeSource({ http });
     case 'invidious':
       return new InvidiousSource(s.invidiousInstance, http);
     case 'piped':

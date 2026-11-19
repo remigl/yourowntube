@@ -70,7 +70,7 @@ class DownloadManager {
       job.partUri = partUri;
       let lastWrite = 0;
 
-      job.resumable = FileSystem.createDownloadResumable(stream.url, partUri, {}, (p) => {
+      job.resumable = FileSystem.createDownloadResumable(stream.url, partUri, { headers: stream.headers }, (p) => {
         const expected = p.totalBytesExpectedToWrite > 0 ? p.totalBytesExpectedToWrite : (stream.sizeBytes ?? 0);
         const ratio = expected > 0 ? Math.min(1, p.totalBytesWritten / expected) : 0;
         job.ratio = ratio;

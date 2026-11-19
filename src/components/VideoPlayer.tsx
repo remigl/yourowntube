@@ -26,10 +26,14 @@ import { Scrubber } from './Scrubber';
 const SEEK_STEP = 10;
 const HIDE_AFTER_MS = 3000;
 const KEEP_AWAKE_TAG = 'yourowntube-player';
+/** Un flux qui ne démarre pas dans ce délai est considéré en échec. */
+const LOAD_TIMEOUT_MS = 20_000;
 
 export interface VideoPlayerProps {
   uri: string;
   contentType?: 'hls' | 'progressive' | 'dash';
+  /** En-têtes HTTP du flux (User-Agent attendu par YouTube…). */
+  headers?: Record<string, string>;
   title: string;
   channel: string;
   artwork?: string;
@@ -60,7 +64,7 @@ export interface VideoPlayerProps {
  * volume, plein écran, reprise, lecture en arrière-plan.
  */
 export function VideoPlayer(props: VideoPlayerProps) {
-  const { uri, contentType, title, channel, artwork, startAt, isLocal, backgroundPlayback, aspect, fullscreen, onFullscreenChange, onProgress, onRetry, onBack, onStreamError, errorText } = props;
+  const { uri, contentType, headers, title, channel, artwork, startAt, isLocal, backgroundPlayback, aspect, fullscreen, onFullscreenChange, onProgress, onRetry, onBack, onStreamError, errorText } = props;
   const insets = useSafeAreaInsets();
 
   // Source figée au montage : expo-video recrée le lecteur si l'objet source
@@ -69,6 +73,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     uri,
     contentType: contentType ?? ('auto' as const),
     metadata: { title, artist: channel, artwork },
+    ...(headers ? { headers } : {}),
   }));
   const player = useVideoPlayer(initialSource, (p) => {
     p.timeUpdateEventInterval = 0.5;
@@ -99,12 +104,24 @@ export function VideoPlayer(props: VideoPlayerProps) {
 
   /* ── Échec du flux : le parent peut basculer sur le flux suivant ── */
   const [errorHandled, setErrorHandled] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
   const streamErrorCb = useRef(onStreamError);
   streamErrorCb.current = onStreamError;
   useEffect(() => {
-    if (status !== 'error') return;
-    setErrorHandled(streamErrorCb.current?.(error?.message) ?? false);
-  }, [status, error]);
+    if (isLocal) return undefined;
+    const t = setTimeout(() => {
+      if (!resumed.current) setTimedOut(true);
+    }, LOAD_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [isLocal]);
+  const failed = status === 'error' || timedOut;
+  const failureDetail = error?.message ?? (timedOut ? 'Le flux ne démarre pas (délai dépassé).' : undefined);
+  useEffect(() => {
+    if (!failed) return;
+    if (timedOut) player.pause();
+    setErrorHandled(streamErrorCb.current?.(failureDetail) ?? false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [failed]);
 
   /* ── Reprise à la position enregistrée, une fois la vidéo prête ── */
   useEffect(() => {
@@ -300,21 +317,21 @@ export function VideoPlayer(props: VideoPlayerProps) {
         </View>
       )}
 
-      {(loading || (status === 'error' && errorHandled)) && (
+      {((loading && !failed) || (failed && errorHandled)) && (
         <View pointerEvents="none" style={styles.center}>
           <ActivityIndicator size="large" color="#fff" />
         </View>
       )}
 
-      {status === 'error' && !errorHandled && (
+      {failed && !errorHandled && (
         <View style={[styles.center, styles.errorBox]}>
           <Ionicons name="alert-circle-outline" size={30} color={colors.danger} />
           <Text style={styles.errorText}>
             {isLocal ? 'Le fichier local est illisible.' : (errorText ?? 'Lecture impossible.')}
           </Text>
-          {!!error?.message && (
+          {!!failureDetail && (
             <Text style={styles.errorDetail} numberOfLines={3}>
-              {error.message}
+              {failureDetail}
             </Text>
           )}
           <Pressable style={styles.retry} onPress={onRetry}>
